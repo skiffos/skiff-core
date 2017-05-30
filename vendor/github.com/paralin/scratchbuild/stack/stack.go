@@ -24,12 +24,13 @@ type ImageStack struct {
 
 // RebaseOnArch attempts to rebase the Stack on a compatible image for the target arch.
 func (s *ImageStack) RebaseOnArch(target arch.KnownArch) error {
-	for i := len(s.Layers) - 1; i >= 0; i-- {
+	for i := len(s.Layers) - 1; i > 0; i-- {
 		layer := s.Layers[i]
 		refName := layer.Reference.Name()
 		if refName == "scratch" {
 			continue
 		}
+
 		compatImage, ok := arch.CompatibleBaseImage(target, refName)
 		if !ok {
 			continue
@@ -60,7 +61,7 @@ func (l *ImageLayer) RewriteFrom(img reference.Reference) {
 		return
 	}
 
-	ast := l.Dockerfile.AST
+	ast := l.Dockerfile
 	for _, line := range ast.Children {
 		if line.Value == "from" {
 			line.Next = &dfparser.Node{Value: img.String()}
@@ -115,7 +116,7 @@ type ImageLayer struct {
 	// Reference is the name/tag/etc of this image.
 	Reference reference.Named
 	// Dockerfile is the dockerfile source for this image.
-	Dockerfile *dfparser.Result
+	Dockerfile *dfparser.Node
 	// Path is the path to the dockerfile directory for this image layer.
 	Path string
 	// OriginalDockerfile is the original source for the dockerfile.
@@ -128,7 +129,7 @@ func (l *ImageLayer) ParseDockerfile(source string) error {
 	if err != nil {
 		return err
 	}
-	l.Dockerfile = res
+	l.Dockerfile = res.AST
 	l.OriginalDockerfile = source
 	return nil
 }
@@ -182,7 +183,7 @@ func (s *ImageStack) processDockerfile(resolver LibraryResolver, rebaseArch arch
 		return nil
 	}
 
-	lines := layer.Dockerfile.AST.Children
+	lines := layer.Dockerfile.Children
 	var nlayer *ImageLayer
 	for _, line := range lines {
 		if line.Value == "from" {
