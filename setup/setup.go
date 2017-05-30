@@ -2,6 +2,8 @@ package setup
 
 import (
 	"fmt"
+	"strings"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/paralin/skiff-core/config"
 )
@@ -18,8 +20,16 @@ type Setup struct {
 type SetupJob interface {
 	// Execute is a goroutine to execute the job
 	Execute() error
-	// Wait waits for the Execute running to complete.
+	// Wait waits for the job to exit.
 	Wait() error
+}
+
+// ensureSlashPrefix ensures a string has a / prefix
+func ensureSlashPrefix(orig string) string {
+	if !strings.HasPrefix(orig, "/") {
+		return "/" + orig
+	}
+	return orig
 }
 
 // WaitForImage waits for a image ref to be ready.
@@ -82,17 +92,21 @@ func (s *Setup) Execute() error {
 		s.containerSetups[ctr.Name()] = setup
 	}
 
+	for _, user := range s.config.Users {
+		setup := NewUserSetup(user, s, s.createUsers)
+		jobs = append(jobs, setup)
+	}
+
 	results := make(chan error)
 	pendingJobs := len(jobs)
 	originalJobs := pendingJobs
 	for _, job := range jobs {
 		go func(job SetupJob) {
-			err := job.Wait()
-			results <- err
+			results <- job.Execute()
 		}(job)
 	}
 
-	var firstError error
+	var firstError error = nil
 	for pendingJobs > 0 {
 		log.Debugf("Waiting for %d/%d jobs...", pendingJobs, originalJobs)
 		err := <-results

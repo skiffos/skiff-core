@@ -4,6 +4,7 @@ import (
 	"io/ioutil"
 	"os"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/paralin/skiff-core/config"
 	"github.com/urfave/cli"
 	"gopkg.in/yaml.v2"
@@ -24,6 +25,7 @@ func parseGlobalConfig() (*config.Config, error) {
 		return nil, err
 	}
 	res.FillPrivateFields()
+	res.FillDefaults()
 	return res, nil
 }
 
@@ -36,6 +38,8 @@ func writeGlobalConfig(conf *config.Config) error {
 }
 
 func main() {
+	log.SetLevel(log.DebugLevel)
+
 	app := cli.NewApp()
 	app.Author = "Christian Stewart <christian@paral.in>"
 	app.Description = "Manages user environment containers."

@@ -1,0 +1,23 @@
+language: go
+
+go_import_path: github.com/docker-library/go-dockerlibrary
+
+go:
+    - 1.8.x
+    - 1.7.x
+    - 1.6.x
+
+script:
+    - |
+        set -e +x
+        rm -f coverage.txt
+        for d in $(go list ./...); do
+            ( set -x; go test -v -race -cover -coverprofile=profile.out -covermode=atomic "$d" )
+            if [ -f profile.out ]; then
+                cat profile.out >> coverage.txt
+                rm profile.out
+            fi
+        done
+
+after_script:
+    - bash <(curl -s https://codecov.io/bash)

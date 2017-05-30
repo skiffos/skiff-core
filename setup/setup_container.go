@@ -8,7 +8,6 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/paralin/skiff-core/config"
 )
@@ -101,11 +100,13 @@ func (cs *ContainerSetup) Execute() (execError error) {
 	}
 
 	// check if the container exists
-	filters := filters.NewArgs()
-	filters.Add("name", config.Name())
+	/*
+		filters := filters.NewArgs()
+		filters.Add("name", config.Name())
+	*/
 	list, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
-		All:     true,
-		Filters: filters,
+		All: true,
+		// Filters: filters,
 	})
 	if err != nil {
 		return err

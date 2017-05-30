@@ -25,4 +25,4 @@ users:
 images:
   skiff/core:latest:
     build:
-      source: /opt/skiff/coreenv/user
+      source: /home/paralin/Documents/minimal_docker/coreenv

@@ -2,12 +2,25 @@ package config
 
 import (
 	"path"
+	"strings"
 )
 
 type Config struct {
 	Containers map[string]*ConfigContainer `json:"containers" yaml:"containers"`
 	Users      map[string]*ConfigUser      `json:"users" yaml:"users"`
 	Images     map[string]*ConfigImage     `json:"images,omitempty" yaml:"images,omitempty"`
+}
+
+// FillDefaults fills the config with reasonable values where necessary.
+func (c *Config) FillDefaults() {
+	for _, img := range c.Images {
+		if img.Build != nil {
+			img.Build.FillDefaults()
+		}
+		if img.Pull != nil {
+			img.Pull.FillDefaults()
+		}
+	}
 }
 
 // FillPrivateFields fills hidden fields on the config.
@@ -79,6 +92,9 @@ type ConfigContainerPort struct {
 
 // Name returns the container's name.
 func (c *ConfigContainer) Name() string {
+	if !strings.HasPrefix(c.name, "/") {
+		c.name = "/" + c.name
+	}
 	return c.name
 }
 
@@ -131,6 +147,13 @@ type ConfigImagePull struct {
 	Registry string `json:"registry,omitempty" yaml:"registry,omitempty"`
 }
 
+// FillEmpty fills empty fields
+func (c *ConfigImagePull) FillDefaults() {
+	if c.Policy == ConfigPullPolicy("") {
+		c.Policy = ConfigPullPolicy_IfNotPresent
+	}
+}
+
 // ImageName returns the imageName
 func (c *ConfigImagePull) ImageName() string {
 	return c.imageName
@@ -158,6 +181,9 @@ func (b *ConfigImageBuild) FillDefaults() {
 	// Force any ../../ trickery in Dockerfile or Root away
 	// Join it with /. -> ./path
 	b.Root = "." + path.Join("/", b.Root)
+	if b.Dockerfile == "" {
+		b.Dockerfile = "Dockerfile"
+	}
 	b.Dockerfile = "." + path.Join("/", b.Dockerfile)
 }
 
@@ -178,8 +204,6 @@ func (u *ConfigUser) Name() string {
 
 // ConfigUserAuth is the user authentication configuration.
 type ConfigUserAuth struct {
-	// Container sets the container name for this user. Must be set.
-	Container string `json:"container" yaml:"container"`
 	// CopyRootKeys indicates we should copy the root's SSH access keys.
 	CopyRootKeys bool `json:"copyRootKeys,omitempty" yaml:"copyRootKeys,omitempty"`
 	// SSHKeys to allow authentication to the system.

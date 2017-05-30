@@ -47,7 +47,8 @@ func (cs *UserSetup) Execute() (execError error) {
 		return fmt.Errorf("User %s must have container specified.", conf.Name())
 	}
 
-	if !cs.waiter.CheckHasContainer(conf.Name()) {
+	conf.Container = ensureSlashPrefix(conf.Container)
+	if !cs.waiter.CheckHasContainer(conf.Container) {
 		return fmt.Errorf("User %s: no such container: %s", conf.Name(), conf.Container)
 	}
 

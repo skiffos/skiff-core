@@ -1,11 +1,11 @@
 package config
 
 func DefaultConfig() *Config {
-	return &Config{
+	conf := &Config{
 		Users: map[string]*ConfigUser{
 			"core": {
+				Container: "skiff_core",
 				Auth: &ConfigUserAuth{
-					Container:    "skiff_core",
 					CopyRootKeys: true,
 				},
 			},
@@ -39,4 +39,7 @@ func DefaultConfig() *Config {
 			},
 		},
 	}
+	conf.FillDefaults()
+	conf.FillPrivateFields()
+	return conf
 }

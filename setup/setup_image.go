@@ -95,11 +95,13 @@ func (i *ImageSetup) Execute() (exError error) {
 		return err
 	}
 
+	exists, err := i.checkImageExists(dockerClient, i.config.Name())
+	if err != nil {
+		return nil
+	}
+	log.WithField("image", i.config.Name()).Debugf("Image exists? %v", exists)
+
 	if i.config.Pull == nil && i.config.Build == nil {
-		exists, err := i.checkImageExists(dockerClient, i.config.Pull.ImageName())
-		if err != nil {
-			return nil
-		}
 		if !exists {
 			return fmt.Errorf("Image %s not found and no pull or build config specified.", i.config.Name())
 		}
@@ -109,20 +111,16 @@ func (i *ImageSetup) Execute() (exError error) {
 	if i.config.Pull != nil {
 		if i.config.Pull.Policy == config.ConfigPullPolicy_IfBuildFails {
 			postBuildPull = true
-		} else if i.config.Pull.Policy == config.ConfigPullPolicy_Always {
+		} else if !exists || i.config.Pull.Policy == config.ConfigPullPolicy_Always {
 			err := i.pull(dockerClient)
 			if err == nil {
 				return nil
 			}
-		} else if i.config.Pull.Policy == config.ConfigPullPolicy_IfNotPresent {
-			exists, err := i.checkImageExists(dockerClient, i.config.Pull.ImageName())
-			if err != nil {
-				return err
-			}
-			if exists {
-				return nil
-			}
 		}
+	}
+
+	if exists {
+		return nil
 	}
 
 	if i.config.Build != nil {

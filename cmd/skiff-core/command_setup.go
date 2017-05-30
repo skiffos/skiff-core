@@ -27,6 +27,7 @@ var SetupCommands cli.Commands = []cli.Command{
 			if err != nil {
 				return err
 			}
+
 			s := setup.NewSetup(conf, setupArgs.CreateUsers)
 			return s.Execute()
 		},
