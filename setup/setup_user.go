@@ -74,9 +74,9 @@ func (cs *UserSetup) Execute() (execError error) {
 		err = execCmd(
 			"adduser",
 			"-D",
-			"-c",
-			fmt.Sprintf("Skiff-Core user %s", cs.config.Name()),
-			"-m",
+			//"-c",
+			// fmt.Sprintf("Skiff-Core user %s", cs.config.Name()),
+			// "-m",
 			"-s",
 			shellPath,
 		)
