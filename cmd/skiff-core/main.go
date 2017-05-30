@@ -3,6 +3,7 @@ package main
 import (
 	"io/ioutil"
 	"os"
+	"path/filepath"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/paralin/skiff-core/config"
@@ -14,6 +15,7 @@ var gitCommit string = "unknown"
 
 var globalFlags struct {
 	ConfigPath string
+	Command    string
 }
 
 func parseGlobalConfig() (*config.Config, error) {
@@ -51,6 +53,7 @@ func main() {
 	}
 	app.Commands = append(app.Commands, SetupCommands...)
 	app.Commands = append(app.Commands, DefconfigCommands...)
+	app.Commands = append(app.Commands, ShellCommands...)
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:        "config",
@@ -58,6 +61,31 @@ func main() {
 			Destination: &globalFlags.ConfigPath,
 			Value:       "config.yaml",
 		},
+		cli.StringFlag{
+			Name:        "command, c",
+			Usage:       "Command override when calling as a shell.",
+			Destination: &globalFlags.Command,
+		},
+	}
+	app.Action = func(c *cli.Context) error {
+		ourPath, err := filepath.Abs(os.Args[0])
+		if err != nil {
+			return err
+		}
+		shell, ok := os.LookupEnv("SHELL")
+		if !ok {
+			return cli.ShowAppHelp(c)
+		}
+		shell, err = filepath.Abs(shell)
+		if err != nil {
+			return err
+		}
+		if shell != ourPath {
+			return cli.ShowAppHelp(c)
+		}
+
+		// Detected shell mode, execute as shell.
+		return ShellCommands[0].Run(c)
 	}
 	app.Run(os.Args)
 }

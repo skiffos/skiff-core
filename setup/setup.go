@@ -41,11 +41,11 @@ func (s *Setup) WaitForImage(ref string) error {
 }
 
 // WaitForContainer waits for a container to be ready.
-func (s *Setup) WaitForContainer(name string) error {
+func (s *Setup) WaitForContainer(name string) (string, error) {
 	if setup, ok := s.containerSetups[name]; ok {
-		return setup.Wait()
+		return setup.WaitWithId()
 	}
-	return fmt.Errorf("No container %s declared!", name)
+	return "", fmt.Errorf("No container %s declared!", name)
 }
 
 // CheckHasContainer checks if there is a container with the specified name.

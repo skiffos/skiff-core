@@ -3,6 +3,8 @@ package config
 import (
 	"path"
 	"strings"
+
+	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
@@ -196,11 +198,21 @@ type ConfigUser struct {
 	Container string `json:"container,omitempty" yaml:"container,omitempty"`
 	// Auth is the authentication config for the user.
 	Auth *ConfigUserAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
+	// ContainerUser is the user to execute as inside the container.
+	ContainerUser string `json:"containerUser,omitempty" yaml:"containerUser,omitempty"`
 }
 
 // Name returns the name of the user.
 func (u *ConfigUser) Name() string {
 	return u.name
+}
+
+// ToConfigUserShell builds a ConfigUserShell from the ConfigUser.
+func (u *ConfigUser) ToConfigUserShell(containerId string) *ConfigUserShell {
+	return &ConfigUserShell{
+		ContainerId: containerId,
+		User:        u.ContainerUser,
+	}
 }
 
 // ConfigUserAuth is the user authentication configuration.
@@ -211,4 +223,24 @@ type ConfigUserAuth struct {
 	SSHKeys []string `json:"sshKeys,omitempty" yaml:"sshKeys,omitempty"`
 	// Password. If empty, then password auth will be disabled.
 	Password string `json:"password,omitempty" yaml:"password,omitempty"`
+}
+
+// ConfigUserShell is the configuration file loaded from the users' home directory.
+type ConfigUserShell struct {
+	ContainerId string `json:"containerId" yaml:"containerId"`
+	User        string `json:"user,omitempty" yaml:"user,omitempty"`
+}
+
+// Marshal encodes the user shell config as yaml.
+func (s *ConfigUserShell) Marshal() ([]byte, error) {
+	return yaml.Marshal(s)
+}
+
+// Unmarshal decodes the user shell config from yaml.
+func UnmarshalConfigUserShell(data []byte) (*ConfigUserShell, error) {
+	res := &ConfigUserShell{}
+	if err := yaml.Unmarshal(data, res); err != nil {
+		return nil, err
+	}
+	return res, nil
 }

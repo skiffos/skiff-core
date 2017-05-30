@@ -17,8 +17,9 @@ type ContainerSetup struct {
 	config *config.ConfigContainer
 	waiter ImageWaiter
 
-	wg  sync.WaitGroup
-	err error
+	wg          sync.WaitGroup
+	err         error
+	containerId string
 }
 
 // NewContainerSetup creates a new ContainerSetup.
@@ -117,6 +118,7 @@ func (cs *ContainerSetup) Execute() (execError error) {
 		for _, name := range ctr.Names {
 			if name == config.Name() {
 				le.Debug("Container already exists")
+				cs.containerId = ctr.ID
 				return nil
 			}
 		}
@@ -132,6 +134,7 @@ func (cs *ContainerSetup) Execute() (execError error) {
 	for _, warning := range res.Warnings {
 		le.Warn("Docker issued warning: %s", warning)
 	}
+	cs.containerId = res.ID
 
 	return nil
 }
@@ -140,4 +143,10 @@ func (cs *ContainerSetup) Execute() (execError error) {
 func (i *ContainerSetup) Wait() error {
 	i.wg.Wait()
 	return i.err
+}
+
+// WaitWithId waits for Execute() to finish and returns the container ID.
+func (i *ContainerSetup) WaitWithId() (string, error) {
+	i.wg.Wait()
+	return i.containerId, i.err
 }

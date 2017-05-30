@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -118,11 +119,23 @@ func (cs *UserSetup) Execute() (execError error) {
 	if err := os.Chmod(sshDir, 0700); err != nil {
 		return err
 	}
+	uid, err := strconv.Atoi(euser.Uid)
+	if err != nil {
+		return err
+	}
+	gid, err := strconv.Atoi(euser.Gid)
+	if err != nil {
+		return err
+	}
+	if err := os.Chown(sshDir, uid, gid); err != nil {
+		return err
+	}
 
 	f, err := os.OpenFile(authorizedKeysPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 
 	authConf := cs.config.Auth
 	if authConf != nil {
@@ -143,6 +156,33 @@ func (cs *UserSetup) Execute() (execError error) {
 			f.WriteString("\n")
 		}
 	}
+
+	f.Sync()
+	if err := os.Chown(authorizedKeysPath, uid, gid); err != nil {
+		return err
+	}
+
+	containerId, err := cs.waiter.WaitForContainer(cs.config.Container)
+	if err != nil {
+		return err
+	}
+
+	userConfPath := path.Join(euser.HomeDir, config.UserConfigFile)
+	le.WithField("path", userConfPath).Debug("Writing user config...")
+	userConf := cs.config.ToConfigUserShell(containerId)
+	userConfData, err := userConf.Marshal()
+	if err != nil {
+		return err
+	}
+
+	userConfFile, err := os.OpenFile(userConfPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0640)
+	if err != nil {
+		return err
+	}
+	if _, err := userConfFile.Write(userConfData); err != nil {
+		return err
+	}
+	userConfFile.Close()
 
 	return nil
 }

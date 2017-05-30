@@ -29,7 +29,11 @@ var SetupCommands cli.Commands = []cli.Command{
 			}
 
 			s := setup.NewSetup(conf, setupArgs.CreateUsers)
-			return s.Execute()
+			err = s.Execute()
+			if err != nil {
+				return cli.NewExitError(err.Error(), 1)
+			}
+			return nil
 		},
 	},
 }
