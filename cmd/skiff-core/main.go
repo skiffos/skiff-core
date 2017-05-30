@@ -10,6 +10,8 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+var gitCommit string = "unknown"
+
 var globalFlags struct {
 	ConfigPath string
 }
@@ -43,6 +45,10 @@ func main() {
 	app := cli.NewApp()
 	app.Author = "Christian Stewart <christian@paral.in>"
 	app.Description = "Manages user environment containers."
+	app.Version = gitCommit
+	if gitCommit == "unknown" {
+		app.HideVersion = true
+	}
 	app.Commands = append(app.Commands, SetupCommands...)
 	app.Commands = append(app.Commands, DefconfigCommands...)
 	app.Flags = []cli.Flag{
