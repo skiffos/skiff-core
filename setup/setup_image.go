@@ -78,6 +78,7 @@ func (i *ImageSetup) build() (buildError error) {
 	if err != nil {
 		return err
 	}
+	defer bldr.Close()
 
 	return bldr.Build()
 }

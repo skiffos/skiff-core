@@ -79,6 +79,7 @@ func (cs *UserSetup) Execute() (execError error) {
 			// "-m",
 			"-s",
 			shellPath,
+			cs.config.Name(),
 		)
 		if err != nil {
 			return err
@@ -91,12 +92,12 @@ func (cs *UserSetup) Execute() (execError error) {
 
 	// Set password
 	if cs.config.Auth == nil || cs.config.Auth.Password == "" {
-		log.Debug("Disabling password login")
-		if err := execCmd("passwd", "-d", cs.config.Auth.Password); err != nil {
+		le.Debug("Disabling password login")
+		if err := execCmd("passwd", "-d", cs.config.Name()); err != nil {
 			return err
 		}
 	} else {
-		log.Debug("Setting password")
+		le.Debug("Setting password")
 		passwd := strings.Replace(cs.config.Auth.Password, "\n", "", -1)
 		passwordSet := strings.NewReader(fmt.Sprintf("%s\n%s\n", passwd, passwd))
 		cmd := exec.Command("passwd", cs.config.Name())
@@ -106,7 +107,7 @@ func (cs *UserSetup) Execute() (execError error) {
 		}
 	}
 
-	log.Debug("Setting up SSH keys")
+	le.Debug("Setting up SSH keys")
 	sshDir := path.Join(euser.HomeDir, ".ssh")
 	authorizedKeysPath := path.Join(sshDir, "authorized_keys")
 	if _, err := os.Stat(sshDir); os.IsNotExist(err) {

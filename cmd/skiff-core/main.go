@@ -44,7 +44,7 @@ func main() {
 
 	app := cli.NewApp()
 	app.Author = "Christian Stewart <christian@paral.in>"
-	app.Description = "Manages user environment containers."
+	app.Usage = "Manages user environment containers."
 	app.Version = gitCommit
 	if gitCommit == "unknown" {
 		app.HideVersion = true

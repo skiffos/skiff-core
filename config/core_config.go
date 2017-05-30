@@ -180,11 +180,12 @@ func (c *ConfigImageBuild) ImageName() string {
 func (b *ConfigImageBuild) FillDefaults() {
 	// Force any ../../ trickery in Dockerfile or Root away
 	// Join it with /. -> ./path
-	b.Root = "." + path.Join("/", b.Root)
-	if b.Dockerfile == "" {
-		b.Dockerfile = "Dockerfile"
+	if b.Root != "" {
+		b.Root = "." + path.Join("/", b.Root)
 	}
-	b.Dockerfile = "." + path.Join("/", b.Dockerfile)
+	if b.Dockerfile != "" {
+		b.Dockerfile = "." + path.Join("/", b.Dockerfile)
+	}
 }
 
 // ConfigUser is a user in the system.
