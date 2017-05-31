@@ -95,7 +95,7 @@
   branch = "master"
   name = "github.com/paralin/scratchbuild"
   packages = ["arch","builder","library","stack"]
-  revision = "1b8b2e06ddd9e83598978c4e8c51af3d553927b4"
+  revision = "9a17ec8bf3daf10a5c5e552739bbdcb52d6d4ed2"
 
 [[projects]]
   branch = "master"

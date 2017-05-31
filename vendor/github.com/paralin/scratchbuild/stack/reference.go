@@ -8,7 +8,7 @@ import (
 
 // ParseImageName parses an image name to a reference.
 func ParseImageName(imageName string) (reference.Named, error) {
-	named, err := reference.ParseNormalizedNamed(imageName)
+	named, err := reference.ParseNamed(imageName)
 	if err != nil {
 		return nil, err
 	}

@@ -1,5 +1,9 @@
 package arch
 
+import (
+	"strings"
+)
+
 // ArchBaseImages lists known compatible equivalents for amd64 images on other arches.
 var ArchBaseImages = map[KnownArch]map[string]string{
 	ARM: {
@@ -15,6 +19,10 @@ var ArchBaseImages = map[KnownArch]map[string]string{
 func CompatibleBaseImage(targetArch KnownArch, image string) (string, bool) {
 	if targetArch == AMD64 {
 		return image, true
+	}
+
+	if strings.HasPrefix(image, "docker.io/") {
+		image = image[len("docker.io/"):]
 	}
 
 	compat := KnownArchCompat[targetArch]
