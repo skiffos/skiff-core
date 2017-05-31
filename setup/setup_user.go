@@ -200,7 +200,7 @@ func (cs *UserSetup) Execute() (execError error) {
 	}
 	userConfFile.Close()
 
-	return nil
+	return os.Chown(userConfPath, uid, gid)
 }
 
 // Wait waits for Execute() to finish.
