@@ -61,15 +61,15 @@ func (cs *UserSetup) Execute() (execError error) {
 	}
 
 	le := log.WithField("user", conf.Name())
+	shellPath, err := pathToSkiffCore()
+	if err != nil {
+		return err
+	}
 	if euser == nil {
 		if !cs.create {
 			return fmt.Errorf("User %s: not found, and create-users is not enabled.", conf.Name())
 		}
 
-		shellPath, err := pathToSkiffCore()
-		if err != nil {
-			return err
-		}
 		// attempt to create the user
 		le.Debug("Creating user")
 		err = execCmd(
@@ -87,6 +87,12 @@ func (cs *UserSetup) Execute() (execError error) {
 		}
 		euser, err = user.Lookup(cs.config.Name())
 		if err != nil {
+			return err
+		}
+	} else {
+		// Set the shell for the user
+		le.WithField("path", shellPath).Debug("Setting shell")
+		if err := execCmd("chsh", "-s", shellPath, cs.config.Name()); err != nil {
 			return err
 		}
 	}
