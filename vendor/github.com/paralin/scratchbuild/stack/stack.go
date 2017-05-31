@@ -242,7 +242,7 @@ func (s *ImageStack) processDockerfile(resolver LibraryResolver, rebaseArch arch
 	}
 
 	// Attempt to find the source for this image.
-	if !strings.HasPrefix(tagged.Name(), "library/") {
+	if !strings.Contains(tagged.Name(), "library/") {
 		le.Debug("Not a library image, cannot determine Dockerfile source.")
 		return nil
 	}
