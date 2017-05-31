@@ -67,7 +67,7 @@ func main() {
 		},
 	}
 	app.Action = func(c *cli.Context) error {
-		if []rune(os.Args[0])[0] != '-' {
+		if []rune(os.Args[0])[0] != '-' && globalFlags.Command == "" {
 			return cli.ShowAppHelp(c)
 		}
 
