@@ -3,7 +3,6 @@ package main
 import (
 	"io/ioutil"
 	"os"
-	"path/filepath"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/paralin/skiff-core/config"
@@ -68,19 +67,7 @@ func main() {
 		},
 	}
 	app.Action = func(c *cli.Context) error {
-		ourPath, err := filepath.Abs(os.Args[0])
-		if err != nil {
-			return err
-		}
-		shell, ok := os.LookupEnv("SHELL")
-		if !ok {
-			return cli.ShowAppHelp(c)
-		}
-		shell, err = filepath.Abs(shell)
-		if err != nil {
-			return err
-		}
-		if shell != ourPath {
+		if []rune(os.Args[0])[0] != '-' {
 			return cli.ShowAppHelp(c)
 		}
 

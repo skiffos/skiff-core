@@ -74,6 +74,8 @@ func (cs *UserSetup) Execute() (execError error) {
 		le.Debug("Creating user")
 		err = execCmd(
 			"adduser",
+			"-G",
+			"docker",
 			"-D",
 			//"-c",
 			// fmt.Sprintf("Skiff-Core user %s", cs.config.Name()),
@@ -95,6 +97,14 @@ func (cs *UserSetup) Execute() (execError error) {
 		if err := execCmd("chsh", "-s", shellPath, cs.config.Name()); err != nil {
 			return err
 		}
+
+		// Add to the Docker group
+		/*
+			le.WithField("path", shellPath).Debug("Adding to Docker group")
+			if err := execCmd("chsh", "-s", shellPath, cs.config.Name()); err != nil {
+				return err
+			}
+		*/
 	}
 
 	// Set password
