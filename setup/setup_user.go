@@ -128,7 +128,7 @@ func (cs *UserSetup) Execute() (execError error) {
 	sshDir := path.Join(euser.HomeDir, ".ssh")
 	authorizedKeysPath := path.Join(sshDir, "authorized_keys")
 	if _, err := os.Stat(sshDir); os.IsNotExist(err) {
-		if err := os.Mkdir(sshDir, 0700); err != nil {
+		if err := os.MkdirAll(sshDir, 0700); err != nil {
 			return err
 		}
 	}
