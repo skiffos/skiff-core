@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
@@ -71,6 +72,18 @@ func (s *Shell) Execute(cmd []string) error {
 
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	defer ctxCancel()
+
+	// Probe the state of the container.
+	ins, err := dockerClient.ContainerInspect(ctx, userConfig.ContainerId)
+	if err != nil {
+		return err
+	}
+	if ins.State == nil || !ins.State.Running {
+		err = dockerClient.ContainerStart(ctx, userConfig.ContainerId, types.ContainerStartOptions{})
+		if err != nil {
+			return fmt.Errorf("Unable to start container: %s", err.Error())
+		}
+	}
 
 	in := NewInStream(os.Stdin)
 	out := NewOutStream(os.Stdout)
