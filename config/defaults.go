@@ -20,7 +20,7 @@ func DefaultConfig() *Config {
 		Containers: map[string]*ConfigContainer{
 			"skiff_core": {
 				Image:       "skiff/core:latest",
-				Cmd:         []string{"/bin/sleep", "infinity"},
+				Cmd:         []string{"/bin/sh", "-c", "while true; do sleep 1000; done"},
 				Privileged:  true,
 				CapAdd:      []string{"ALL"},
 				HostIPC:     true,
