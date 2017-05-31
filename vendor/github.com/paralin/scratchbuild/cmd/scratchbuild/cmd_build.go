@@ -28,7 +28,12 @@ var buildArgs struct {
 var BuildCommand = cli.Command{
 	Name:  "build",
 	Usage: "Builds the image in the specified directory.",
-	Action: func(c *cli.Context) error {
+	Action: func(c *cli.Context) (rerr error) {
+		defer func() {
+			if rerr != nil {
+				rerr = cli.NewExitError(rerr.Error(), 1)
+			}
+		}()
 		if c.NArg() != 1 {
 			return errors.New("Only one positional argument for the build path is expected.")
 		}
@@ -38,7 +43,7 @@ var BuildCommand = cli.Command{
 		}
 
 		// parse reference
-		if _, err := stack.ParseImageName(buildArgs.Tag); err != nil {
+		if _, err := stack.ParseNormalizedImageName(buildArgs.Tag); err != nil {
 			return fmt.Errorf("Tag \"%s\" you specified is invalid: %v", buildArgs.Tag, err)
 		}
 
