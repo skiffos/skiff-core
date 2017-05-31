@@ -26,6 +26,9 @@ type LibraryResolver struct {
 func (r *LibraryResolver) GetLibrarySource(ref reference.NamedTagged) (string, error) {
 	le := log.WithField("ref", ref.String())
 	refName := ref.Name()
+	if strings.HasPrefix(refName, "docker.io/") {
+		refName = refName[len("docker.io/"):]
+	}
 	if strings.HasPrefix(refName, "library/") {
 		refName = refName[len("library/"):]
 	}
