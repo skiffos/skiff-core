@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/client"
 	"github.com/paralin/scratchbuild/arch"
@@ -76,7 +77,14 @@ func (b *Builder) build(buildPath string) error {
 	}
 
 	bldr := sbbuilder.NewBuilder(stk, dockerClient)
-	return bldr.Build()
+	res := make(chan error)
+	go func() {
+		res <- bldr.Build()
+	}()
+
+	time.Sleep(time.Duration(1) * time.Second)
+
+	return <-res
 }
 
 // fetchSource downloads the source to a destination path.
