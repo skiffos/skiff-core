@@ -107,6 +107,15 @@ func (cs *UserSetup) Execute() (execError error) {
 		*/
 	}
 
+	uid, err := strconv.Atoi(euser.Uid)
+	if err != nil {
+		return err
+	}
+	gid, err := strconv.Atoi(euser.Gid)
+	if err != nil {
+		return err
+	}
+
 	// Set password
 	if cs.config.Auth == nil || cs.config.Auth.Password == "" {
 		le.Debug("Disabling password login")
@@ -127,20 +136,20 @@ func (cs *UserSetup) Execute() (execError error) {
 	le.Debug("Setting up SSH keys")
 	sshDir := path.Join(euser.HomeDir, ".ssh")
 	authorizedKeysPath := path.Join(sshDir, "authorized_keys")
+	if _, err := os.Stat(euser.HomeDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(euser.HomeDir, 0755); err != nil {
+			return err
+		}
+		if err := os.Chown(euser.HomeDir, uid, gid); err != nil {
+			return err
+		}
+	}
 	if _, err := os.Stat(sshDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(sshDir, 0700); err != nil {
 			return err
 		}
 	}
 	if err := os.Chmod(sshDir, 0700); err != nil {
-		return err
-	}
-	uid, err := strconv.Atoi(euser.Uid)
-	if err != nil {
-		return err
-	}
-	gid, err := strconv.Atoi(euser.Gid)
-	if err != nil {
 		return err
 	}
 	if err := os.Chown(sshDir, uid, gid); err != nil {
