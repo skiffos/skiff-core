@@ -11,10 +11,12 @@ const (
 	NONE KnownArch = iota
 	// AMD64 architecture.
 	AMD64
-	// ARM architecture.
-	ARM
-	// ARM64 64-bit ARM architecture.
-	ARM64
+	// ARMv6 architecture.
+	ARMV6
+	// ARMv7 architecture.
+	ARMV7
+	// ARMv8 64-bit ARM architecture.
+	ARMV8
 )
 
 // DefaultArch is the architecture most Docker images are compatible with on default.
@@ -22,9 +24,11 @@ var DefaultArch KnownArch = AMD64
 
 // KnownArchNames are the string regex representations of KnownArch.
 var KnownArchNames = map[string]KnownArch{
-	"arm":     ARM,
-	"armv*":   ARM,
-	"aarch64": ARM64,
+	"arm":     ARMV6,
+	"armv6*":  ARMV6,
+	"armv7*":  ARMV7,
+	"aarch64": ARMV8,
+	"armv8*":  ARMV8,
 
 	"x86_64": AMD64,
 	"amd64":  AMD64,
@@ -33,8 +37,10 @@ var KnownArchNames = map[string]KnownArch{
 
 // KnownArchCompat contains known compatibilities between architectures.
 var KnownArchCompat = map[KnownArch][]KnownArch{
-	// ARM64 can use ARM images.
-	ARM64: {ARM},
+	// ARMV8 can use all ARM images.
+	ARMV8: {ARMV6, ARMV7},
+	// ARMV7 can use ARMV6 images.
+	ARMV7: {ARMV6},
 }
 
 // ParseArch attempts to determine which arch the (uname -m) output represents.

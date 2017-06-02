@@ -6,12 +6,34 @@ import (
 
 // ArchBaseImages lists known compatible equivalents for amd64 images on other arches.
 var ArchBaseImages = map[KnownArch]map[string]string{
-	ARM: {
-		"library/ubuntu":    "ioft/armhf-ubuntu",
+	ARMV8: {
+		"library/debian":    "arm64v8/debian",
+		"library/alpine":    "arm64v8/alpine",
+		"library/php":       "arm64v8/php",
+		"library/ubuntu":    "arm64v8/ubuntu",
+		"library/wordpress": "arm64v8/wordpress",
+		"library/busybox":   "arm64v8/busybox",
+		"library/ruby":      "arm64v8/ruby",
+		"library/httpd":     "arm64v8/httpd",
+		"library/fedora":    "arm64v8/fedora",
+	},
+	ARMV7: {
+		"library/opensuse":  "arm32v7/opensuse",
+		"library/ubuntu":    "arm32v7/ubuntu",
 		"library/alpine":    "container4armhf/armhf-alpine",
 		"library/busybox":   "container4armhf/armhf-busybox",
 		"library/archlinux": "armv7/armhf-archlinux",
 		"library/debian":    "armbuild/debian",
+	},
+	ARMV6: {
+		"library/alpine":   "arm32v6/alpine",
+		"library/openjdk":  "arm32v6/openjdk",
+		"library/tomcat":   "arm32v6/tomcat",
+		"library/bash":     "arm32v6/bash",
+		"library/golang":   "arm32v6/golang",
+		"library/postgres": "arm32v6/postgres",
+		"library/haproxy":  "arm32v6/haproxy",
+		"library/busybox":  "arm32v6/busybox",
 	},
 }
 
