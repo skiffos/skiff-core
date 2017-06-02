@@ -44,6 +44,10 @@ type ConfigContainer struct {
 	name string // populated by the Config
 	// Image, must also exist in images list.
 	Image string `json:"image" yaml:"image"`
+	// Enable starting with a tty?
+	Tty bool `json:"tty,omitempty" yaml:"tty,omitempty"`
+	// WorkingDirectory override
+	WorkingDirectory string `json:"workingDirectory,omitempty" yaml:"workingDirectory,omitempty"`
 	// Mounts. Colon separated, see Docker mount style
 	Mounts []string `json:"mounts,omitempty" yaml:"mounts,omitempty"`
 	// Disable passing --init to the container
