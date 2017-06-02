@@ -25,7 +25,7 @@ var SetupCommands cli.Commands = []cli.Command{
 			// read the config
 			conf, err := parseGlobalConfig()
 			if err != nil {
-				return err
+				return cli.NewExitError("Unable to parse config: "+err.Error(), 1)
 			}
 
 			s := setup.NewSetup(conf, setupArgs.CreateUsers)

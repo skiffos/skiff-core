@@ -27,6 +27,7 @@ func parseGlobalConfig() (*config.Config, error) {
 	if err := yaml.Unmarshal(configData, res); err != nil {
 		return nil, err
 	}
+
 	res.FillPrivateFields()
 	res.FillDefaults()
 	return res, nil
