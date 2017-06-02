@@ -54,6 +54,7 @@ func main() {
 	app.Commands = append(app.Commands, SetupCommands...)
 	app.Commands = append(app.Commands, DefconfigCommands...)
 	app.Commands = append(app.Commands, ShellCommands...)
+	app.Commands = append(app.Commands, SysInfoCommands...)
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:        "config",
