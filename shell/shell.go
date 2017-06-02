@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api"
@@ -89,6 +90,29 @@ func (s *Shell) Execute(cmd []string) error {
 		err = dockerClient.ContainerStart(ctx, userConfig.ContainerId, types.ContainerStartOptions{})
 		if err != nil {
 			return fmt.Errorf("Unable to start container: %s", err.Error())
+		}
+
+		// wait for the container to start
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(time.Duration(100) * time.Millisecond):
+			}
+
+			ctr, err := dockerClient.ContainerInspect(ctx, userConfig.ContainerId)
+			if err != nil {
+				return err
+			}
+			if ctr.State == nil {
+				continue
+			}
+			if ctr.State.Dead {
+				return fmt.Errorf("Container failed to start with exit code: %d", ctr.State.ExitCode)
+			}
+			if ctr.State.Running {
+				break
+			}
 		}
 	}
 
