@@ -26,10 +26,11 @@ var ShellCommands cli.Commands = []cli.Command{
 			}
 
 			sh := shell.NewShell(currentUser.HomeDir)
-			if globalFlags.Command == "" {
-				globalFlags.Command = "/bin/sh"
+			var cmd []string
+			if globalFlags.Command != "" {
+				cmd = str.ToArgv(globalFlags.Command)
 			}
-			err = sh.Execute(str.ToArgv(globalFlags.Command))
+			err = sh.Execute(cmd)
 			if err != nil {
 				return cli.NewExitError(err.Error(), 1)
 			}

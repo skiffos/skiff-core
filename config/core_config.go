@@ -200,6 +200,8 @@ type ConfigUser struct {
 	Auth *ConfigUserAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
 	// ContainerUser is the user to execute as inside the container.
 	ContainerUser string `json:"containerUser,omitempty" yaml:"containerUser,omitempty"`
+	// ContainerShell is the default shell to execute in the container.
+	ContainerShell []string `json:"containerShell,omitempty" yaml:"containerShell,omitempty"`
 }
 
 // Name returns the name of the user.
@@ -212,6 +214,7 @@ func (u *ConfigUser) ToConfigUserShell(containerId string) *ConfigUserShell {
 	return &ConfigUserShell{
 		ContainerId: containerId,
 		User:        u.ContainerUser,
+		Shell:       u.ContainerShell,
 	}
 }
 
@@ -227,8 +230,9 @@ type ConfigUserAuth struct {
 
 // ConfigUserShell is the configuration file loaded from the users' home directory.
 type ConfigUserShell struct {
-	ContainerId string `json:"containerId" yaml:"containerId"`
-	User        string `json:"user,omitempty" yaml:"user,omitempty"`
+	ContainerId string   `json:"containerId" yaml:"containerId"`
+	User        string   `json:"user,omitempty" yaml:"user,omitempty"`
+	Shell       []string `json:"shell,omitempty" yaml:"shell,omitempty"`
 }
 
 // Marshal encodes the user shell config as yaml.

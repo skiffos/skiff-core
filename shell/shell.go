@@ -70,6 +70,13 @@ func (s *Shell) Execute(cmd []string) error {
 		return errors.New("Container ID not set, setup failed.")
 	}
 
+	if len(cmd) == 0 {
+		cmd = userConfig.Shell
+	}
+	if len(cmd) == 0 {
+		cmd = []string{"/bin/sh"}
+	}
+
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	defer ctxCancel()
 
