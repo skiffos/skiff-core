@@ -128,6 +128,7 @@ func (s *Shell) Execute(cmd []string) error {
 		Tty:          useTty,
 		User:         userConfig.User,
 		Cmd:          cmd,
+		Env:          buildShellEnv(),
 	})
 	if err != nil {
 		return err
