@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/docker/docker/client"
-	"github.com/paralin/scratchbuild/arch"
 	sbbuilder "github.com/paralin/scratchbuild/builder"
 	"github.com/paralin/scratchbuild/library"
 	"github.com/paralin/scratchbuild/stack"
@@ -67,7 +65,7 @@ func (b *Builder) build(buildPath string) error {
 	}
 	defer dockerClient.Close()
 
-	arc, _ := arch.ParseArch(runtime.GOARCH)
+	arc := detectArch()
 	stk, err := stack.ImageStackFromPath(buildPath, b.config.Dockerfile, b.config.ImageName(), b.lib, arc)
 	if err != nil {
 		return err
