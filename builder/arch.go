@@ -18,10 +18,10 @@ func detectMachineId() string {
 	} else {
 		var data []byte
 		for _, byt := range un.Machine[:] {
-			data = append(data, byte(byt))
 			if byt == 0 {
 				break
 			}
+			data = append(data, byte(byt))
 		}
 		mname = string(data)
 	}
