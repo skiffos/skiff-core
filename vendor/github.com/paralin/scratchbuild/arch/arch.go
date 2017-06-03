@@ -1,7 +1,7 @@
 package arch
 
 import (
-	"regexp"
+	"github.com/ryanuber/go-glob"
 )
 
 // KnownArch represents a known architecture.
@@ -25,8 +25,8 @@ var DefaultArch KnownArch = AMD64
 // KnownArchNames are the string regex representations of KnownArch.
 var KnownArchNames = map[string]KnownArch{
 	"arm":     ARMV6,
-	"armv6*":  ARMV6,
-	"armv7*":  ARMV7,
+	"armv6l":  ARMV6,
+	"armv7l":  ARMV7,
 	"aarch64": ARMV8,
 	"armv8*":  ARMV8,
 
@@ -46,8 +46,7 @@ var KnownArchCompat = map[KnownArch][]KnownArch{
 // ParseArch attempts to determine which arch the (uname -m) output represents.
 func ParseArch(arch string) (KnownArch, bool) {
 	for archp, archv := range KnownArchNames {
-		matched, _ := regexp.MatchString(archp, arch)
-		if !matched {
+		if !glob.Glob(archp, arch) {
 			continue
 		}
 		return archv, true
