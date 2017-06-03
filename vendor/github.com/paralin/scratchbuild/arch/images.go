@@ -47,6 +47,10 @@ func CompatibleBaseImage(targetArch KnownArch, image string) (string, bool) {
 		image = image[len("docker.io/"):]
 	}
 
+	if ci := strings.IndexRune(image, ':'); ci > 0 {
+		image = image[:ci]
+	}
+
 	compat := KnownArchCompat[targetArch]
 	arches := make([]KnownArch, len(compat)+1)
 	arches[0] = targetArch
