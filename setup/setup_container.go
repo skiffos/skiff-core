@@ -54,6 +54,7 @@ func (cs *ContainerSetup) buildDockerContainer() *types.ContainerCreateConfig {
 		Init:        &useInit,
 		SecurityOpt: config.SecurityOpt,
 		Tmpfs:       config.TmpFs,
+		Privileged:  config.Privileged,
 	}
 	res.HostConfig = hostConfig
 	if len(config.Mounts) > 0 {
