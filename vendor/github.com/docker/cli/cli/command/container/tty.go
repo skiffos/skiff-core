@@ -32,10 +32,6 @@ func resizeTtyTo(ctx context.Context, client client.ContainerAPIClient, id strin
 	} else {
 		err = client.ContainerResize(ctx, id, options)
 	}
-
-	if err != nil {
-		logrus.Debugf("Error resize: %s", err)
-	}
 }
 
 // MonitorTtySize updates the container tty size when the terminal tty changes size
