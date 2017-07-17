@@ -110,6 +110,12 @@ func (s *Shell) Execute(cmd []string) error {
 			if ctr.State.Dead {
 				return fmt.Errorf("Container failed to start with exit code: %d", ctr.State.ExitCode)
 			}
+
+			health := ctr.State.Health
+			if health != nil && (health.Status != "none" && health.Status != "healthy") {
+				continue
+			}
+
 			if ctr.State.Running {
 				break
 			}
