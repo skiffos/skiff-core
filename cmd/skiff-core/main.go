@@ -77,5 +77,5 @@ func main() {
 		// Detected shell mode, execute as shell.
 		return ShellCommands[0].Run(c)
 	}
-	app.Run(os.Args)
+	app.RunAndExitOnError()
 }
