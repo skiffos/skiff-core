@@ -1,4 +1,4 @@
-package client // import "github.com/docker/docker/client"
+package client
 
 import (
 	"bytes"
@@ -11,9 +11,6 @@ import (
 
 // TaskInspectWithRaw returns the task information and its raw representation..
 func (cli *Client) TaskInspectWithRaw(ctx context.Context, taskID string) (swarm.Task, []byte, error) {
-	if taskID == "" {
-		return swarm.Task{}, nil, objectNotFoundError{object: "task", id: taskID}
-	}
 	serverResp, err := cli.get(ctx, "/tasks/"+taskID, nil, nil)
 	if err != nil {
 		return swarm.Task{}, nil, wrapResponseError(err, serverResp, "task", taskID)

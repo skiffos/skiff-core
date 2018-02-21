@@ -1,4 +1,6 @@
-package mount // import "github.com/docker/docker/pkg/mount"
+// +build linux
+
+package mount
 
 import (
 	"bufio"

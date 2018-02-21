@@ -1,4 +1,6 @@
-package term // import "github.com/docker/docker/pkg/term"
+// +build windows
+
+package term
 
 import (
 	"io"

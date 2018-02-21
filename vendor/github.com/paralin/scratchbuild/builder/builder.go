@@ -17,7 +17,7 @@ import (
 	"github.com/paralin/scratchbuild/stack"
 	"golang.org/x/crypto/ssh/terminal"
 
-	log "github.com/sirupsen/logrus"
+	log "github.com/Sirupsen/logrus"
 )
 
 // Builder manages the Docker Image build process.

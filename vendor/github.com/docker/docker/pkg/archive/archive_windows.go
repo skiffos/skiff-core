@@ -1,4 +1,6 @@
-package archive // import "github.com/docker/docker/pkg/archive"
+// +build windows
+
+package archive
 
 import (
 	"archive/tar"

@@ -1,4 +1,6 @@
-package idtools // import "github.com/docker/docker/pkg/idtools"
+// +build windows
+
+package idtools
 
 import (
 	"os"
