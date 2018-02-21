@@ -7,7 +7,7 @@ import (
 	"os"
 	"runtime"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/docker/docker/client"
 	"github.com/paralin/scratchbuild/arch"
 	"github.com/paralin/scratchbuild/builder"
