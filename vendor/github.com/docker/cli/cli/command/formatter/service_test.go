@@ -3,11 +3,14 @@ package formatter
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/docker/docker/api/types/swarm"
+	"github.com/gotestyourself/gotestyourself/golden"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServiceContextWrite(t *testing.T) {
@@ -57,21 +60,7 @@ bar
 		// Raw Format
 		{
 			Context{Format: NewServiceListFormat("raw", false)},
-			`id: id_baz
-name: baz
-mode: global
-replicas: 2/4
-image: 
-ports: *:80->8080/tcp
-
-id: id_bar
-name: bar
-mode: replicated
-replicas: 2/4
-image: 
-ports: *:80->8080/tcp
-
-`,
+			string(golden.Get(t, "service-context-write-raw.golden")),
 		},
 		{
 			Context{Format: NewServiceListFormat("raw", true)},
@@ -94,14 +83,14 @@ bar
 				ID: "id_baz",
 				Spec: swarm.ServiceSpec{
 					Annotations: swarm.Annotations{Name: "baz"},
-					EndpointSpec: &swarm.EndpointSpec{
-						Ports: []swarm.PortConfig{
-							{
-								PublishMode:   "ingress",
-								PublishedPort: 80,
-								TargetPort:    8080,
-								Protocol:      "tcp",
-							},
+				},
+				Endpoint: swarm.Endpoint{
+					Ports: []swarm.PortConfig{
+						{
+							PublishMode:   "ingress",
+							PublishedPort: 80,
+							TargetPort:    8080,
+							Protocol:      "tcp",
 						},
 					},
 				},
@@ -110,14 +99,14 @@ bar
 				ID: "id_bar",
 				Spec: swarm.ServiceSpec{
 					Annotations: swarm.Annotations{Name: "bar"},
-					EndpointSpec: &swarm.EndpointSpec{
-						Ports: []swarm.PortConfig{
-							{
-								PublishMode:   "ingress",
-								PublishedPort: 80,
-								TargetPort:    8080,
-								Protocol:      "tcp",
-							},
+				},
+				Endpoint: swarm.Endpoint{
+					Ports: []swarm.PortConfig{
+						{
+							PublishMode:   "ingress",
+							PublishedPort: 80,
+							TargetPort:    8080,
+							Protocol:      "tcp",
 						},
 					},
 				},
@@ -150,14 +139,14 @@ func TestServiceContextWriteJSON(t *testing.T) {
 			ID: "id_baz",
 			Spec: swarm.ServiceSpec{
 				Annotations: swarm.Annotations{Name: "baz"},
-				EndpointSpec: &swarm.EndpointSpec{
-					Ports: []swarm.PortConfig{
-						{
-							PublishMode:   "ingress",
-							PublishedPort: 80,
-							TargetPort:    8080,
-							Protocol:      "tcp",
-						},
+			},
+			Endpoint: swarm.Endpoint{
+				Ports: []swarm.PortConfig{
+					{
+						PublishMode:   "ingress",
+						PublishedPort: 80,
+						TargetPort:    8080,
+						Protocol:      "tcp",
 					},
 				},
 			},
@@ -166,14 +155,14 @@ func TestServiceContextWriteJSON(t *testing.T) {
 			ID: "id_bar",
 			Spec: swarm.ServiceSpec{
 				Annotations: swarm.Annotations{Name: "bar"},
-				EndpointSpec: &swarm.EndpointSpec{
-					Ports: []swarm.PortConfig{
-						{
-							PublishMode:   "ingress",
-							PublishedPort: 80,
-							TargetPort:    8080,
-							Protocol:      "tcp",
-						},
+			},
+			Endpoint: swarm.Endpoint{
+				Ports: []swarm.PortConfig{
+					{
+						PublishMode:   "ingress",
+						PublishedPort: 80,
+						TargetPort:    8080,
+						Protocol:      "tcp",
 					},
 				},
 			},
@@ -200,12 +189,11 @@ func TestServiceContextWriteJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
-		t.Logf("Output: line %d: %s", i, line)
+		msg := fmt.Sprintf("Output: line %d: %s", i, line)
 		var m map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &m); err != nil {
-			t.Fatal(err)
-		}
-		assert.Equal(t, expectedJSONs[i], m)
+		err := json.Unmarshal([]byte(line), &m)
+		require.NoError(t, err, msg)
+		assert.Equal(t, expectedJSONs[i], m, msg)
 	}
 }
 func TestServiceContextWriteJSONField(t *testing.T) {
@@ -229,11 +217,131 @@ func TestServiceContextWriteJSONField(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
-		t.Logf("Output: line %d: %s", i, line)
+		msg := fmt.Sprintf("Output: line %d: %s", i, line)
 		var s string
-		if err := json.Unmarshal([]byte(line), &s); err != nil {
-			t.Fatal(err)
-		}
-		assert.Equal(t, services[i].Spec.Name, s)
+		err := json.Unmarshal([]byte(line), &s)
+		require.NoError(t, err, msg)
+		assert.Equal(t, services[i].Spec.Name, s, msg)
 	}
+}
+
+func TestServiceContext_Ports(t *testing.T) {
+	c := serviceContext{
+		service: swarm.Service{
+			Endpoint: swarm.Endpoint{
+				Ports: []swarm.PortConfig{
+					{
+						Protocol:      "tcp",
+						TargetPort:    80,
+						PublishedPort: 81,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    80,
+						PublishedPort: 80,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    95,
+						PublishedPort: 95,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    90,
+						PublishedPort: 90,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    91,
+						PublishedPort: 91,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    92,
+						PublishedPort: 92,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    93,
+						PublishedPort: 93,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    94,
+						PublishedPort: 94,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "udp",
+						TargetPort:    95,
+						PublishedPort: 95,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "udp",
+						TargetPort:    90,
+						PublishedPort: 90,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "udp",
+						TargetPort:    96,
+						PublishedPort: 96,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "udp",
+						TargetPort:    91,
+						PublishedPort: 91,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "udp",
+						TargetPort:    92,
+						PublishedPort: 92,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "udp",
+						TargetPort:    93,
+						PublishedPort: 93,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "udp",
+						TargetPort:    94,
+						PublishedPort: 94,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    60,
+						PublishedPort: 60,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    61,
+						PublishedPort: 61,
+						PublishMode:   "ingress",
+					},
+					{
+						Protocol:      "tcp",
+						TargetPort:    61,
+						PublishedPort: 62,
+						PublishMode:   "ingress",
+					},
+				},
+			},
+		},
+	}
+
+	assert.Equal(t, "*:60-61->60-61/tcp, *:62->61/tcp, *:80-81->80/tcp, *:90-95->90-95/tcp, *:90-96->90-96/udp", c.Ports())
 }

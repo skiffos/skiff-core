@@ -31,7 +31,13 @@ func TestConfig(t *testing.T) {
 			config: `
 {
     "architecture": "amd64",
-    "os": 123
+    "os": 123,
+    "rootfs": {
+      "diff_ids": [
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+      ],
+      "type": "layers"
+    }
 }
 `,
 			fail: true,
@@ -47,6 +53,12 @@ func TestConfig(t *testing.T) {
     "os": "linux",
     "config": {
         "User": 1234
+    },
+    "rootfs": {
+      "diff_ids": [
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+      ],
+      "type": "layers"
     }
 }
 `,
@@ -57,7 +69,15 @@ func TestConfig(t *testing.T) {
 		{
 			config: `
 {
-    "history": "should be an array"
+    "history": "should be an array",
+    "architecture": "amd64",
+    "os": 123,
+    "rootfs": {
+      "diff_ids": [
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+      ],
+      "type": "layers"
+    }
 }
 `,
 			fail: true,
@@ -67,10 +87,18 @@ func TestConfig(t *testing.T) {
 		{
 			config: `
 {
+    "architecture": "amd64",
+    "os": 123,
     "config": {
         "Env": [
             7353
         ]
+    },
+    "rootfs": {
+      "diff_ids": [
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+      ],
+      "type": "layers"
     }
 }
 `,
@@ -81,11 +109,19 @@ func TestConfig(t *testing.T) {
 		{
 			config: `
 {
+    "architecture": "amd64",
+    "os": 123,
     "config": {
         "Volumes": [
             "/var/job-result-data",
             "/var/log/my-app-logs"
         ]
+    },
+    "rootfs": {
+      "diff_ids": [
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+      ],
+      "type": "layers"
     }
 }
 `,
@@ -98,6 +134,7 @@ func TestConfig(t *testing.T) {
 			fail:   true,
 		},
 
+		// valid config with optional fields
 		{
 			config: `
 {
@@ -107,9 +144,6 @@ func TestConfig(t *testing.T) {
     "os": "linux",
     "config": {
         "User": "1:1",
-        "Memory": 2048,
-        "MemorySwap": 4096,
-        "CpuShares": 8,
         "ExposedPorts": {
             "8080/tcp": {}
         },
@@ -130,7 +164,12 @@ func TestConfig(t *testing.T) {
             "/var/job-result-data": {},
             "/var/log/my-app-logs": {}
         },
-        "WorkingDir": "/home/alice"
+        "StopSignal": "SIGKILL",
+        "WorkingDir": "/home/alice",
+        "Labels": {
+            "com.example.project.git.url": "https://example.com/project.git",
+            "com.example.project.git.commit": "45a939b2999782a3f005621a8d0f29aa387e1d6b"
+        }
     },
     "rootfs": {
       "diff_ids": [
@@ -154,9 +193,47 @@ func TestConfig(t *testing.T) {
 `,
 			fail: false,
 		},
+
+		// valid config with only required fields
+		{
+			config: `
+{
+    "architecture": "amd64",
+    "os": "linux",
+    "rootfs": {
+      "diff_ids": [
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+      ],
+      "type": "layers"
+    }
+}
+`,
+			fail: false,
+		},
+		// expected failure: Env is invalid
+		{
+			config: `
+{
+    "architecture": "amd64",
+    "os": "linux",
+    "config": {
+        "Env": [
+            "foo"
+        ]
+    },
+    "rootfs": {
+      "diff_ids": [
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+      ],
+      "type": "layers"
+    }
+}
+`,
+			fail: true,
+		},
 	} {
 		r := strings.NewReader(tt.config)
-		err := schema.MediaTypeImageConfig.Validate(r)
+		err := schema.ValidatorMediaTypeImageConfig.Validate(r)
 
 		if got := err != nil; tt.fail != got {
 			t.Errorf("test %d: expected validation failure %t but got %t, err %v", i, tt.fail, got, err)

@@ -32,7 +32,7 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/aws/aws-sdk-go/aws/corehandlers"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/request"
@@ -137,9 +137,6 @@ func (v2 *signer) Sign() error {
 	host, canonicalPath := parsedURL.Host, parsedURL.Path
 	v2.Request.Header["Host"] = []string{host}
 	v2.Request.Header["date"] = []string{v2.Time.In(time.UTC).Format(time.RFC1123)}
-	if credValue.SessionToken != "" {
-		v2.Request.Header["x-amz-security-token"] = []string{credValue.SessionToken}
-	}
 
 	smap = make(map[string]string)
 	for k, v := range headers {

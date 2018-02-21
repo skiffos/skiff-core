@@ -15,8 +15,8 @@ type diskUsageOptions struct {
 	format  string
 }
 
-// NewDiskUsageCommand creates a new cobra.Command for `docker df`
-func NewDiskUsageCommand(dockerCli *command.DockerCli) *cobra.Command {
+// newDiskUsageCommand creates a new cobra.Command for `docker df`
+func newDiskUsageCommand(dockerCli command.Cli) *cobra.Command {
 	var opts diskUsageOptions
 
 	cmd := &cobra.Command{
@@ -26,7 +26,7 @@ func NewDiskUsageCommand(dockerCli *command.DockerCli) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDiskUsage(dockerCli, opts)
 		},
-		Tags: map[string]string{"version": "1.25"},
+		Annotations: map[string]string{"version": "1.25"},
 	}
 
 	flags := cmd.Flags()
@@ -37,7 +37,7 @@ func NewDiskUsageCommand(dockerCli *command.DockerCli) *cobra.Command {
 	return cmd
 }
 
-func runDiskUsage(dockerCli *command.DockerCli, opts diskUsageOptions) error {
+func runDiskUsage(dockerCli command.Cli, opts diskUsageOptions) error {
 	if opts.verbose && len(opts.format) != 0 {
 		return errors.New("the verbose and the format options conflict")
 	}
@@ -57,11 +57,12 @@ func runDiskUsage(dockerCli *command.DockerCli, opts diskUsageOptions) error {
 			Output: dockerCli.Out(),
 			Format: formatter.NewDiskUsageFormat(format),
 		},
-		LayersSize: du.LayersSize,
-		Images:     du.Images,
-		Containers: du.Containers,
-		Volumes:    du.Volumes,
-		Verbose:    opts.verbose,
+		LayersSize:  du.LayersSize,
+		BuilderSize: du.BuilderSize,
+		Images:      du.Images,
+		Containers:  du.Containers,
+		Volumes:     du.Volumes,
+		Verbose:     opts.verbose,
 	}
 
 	return duCtx.Write()

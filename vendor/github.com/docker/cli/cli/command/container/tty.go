@@ -7,11 +7,11 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/signal"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
 
@@ -32,10 +32,14 @@ func resizeTtyTo(ctx context.Context, client client.ContainerAPIClient, id strin
 	} else {
 		err = client.ContainerResize(ctx, id, options)
 	}
+
+	if err != nil {
+		logrus.Debugf("Error resize: %s", err)
+	}
 }
 
 // MonitorTtySize updates the container tty size when the terminal tty changes size
-func MonitorTtySize(ctx context.Context, cli *command.DockerCli, id string, isExec bool) error {
+func MonitorTtySize(ctx context.Context, cli command.Cli, id string, isExec bool) error {
 	resizeTty := func() {
 		height, width := cli.Out().GetTtySize()
 		resizeTtyTo(ctx, cli.Client(), id, height, width, isExec)
@@ -70,7 +74,7 @@ func MonitorTtySize(ctx context.Context, cli *command.DockerCli, id string, isEx
 }
 
 // ForwardAllSignals forwards signals to the container
-func ForwardAllSignals(ctx context.Context, cli *command.DockerCli, cid string) chan os.Signal {
+func ForwardAllSignals(ctx context.Context, cli command.Cli, cid string) chan os.Signal {
 	sigc := make(chan os.Signal, 128)
 	signal.CatchAll(sigc)
 	go func() {

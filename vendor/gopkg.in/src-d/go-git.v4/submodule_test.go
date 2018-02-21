@@ -1,14 +1,15 @@
 package git
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 
-	"github.com/src-d/go-git-fixtures"
 	"gopkg.in/src-d/go-git.v4/plumbing"
 
 	. "gopkg.in/check.v1"
+	"gopkg.in/src-d/go-git-fixtures.v3"
 )
 
 type SubmoduleSuite struct {
@@ -20,7 +21,7 @@ type SubmoduleSuite struct {
 var _ = Suite(&SubmoduleSuite{})
 
 func (s *SubmoduleSuite) SetUpTest(c *C) {
-	path := fixtures.ByTag("submodule").One().Worktree().Base()
+	path := fixtures.ByTag("submodule").One().Worktree().Root()
 
 	dir, err := ioutil.TempDir("", "submodule")
 	c.Assert(err, IsNil)
@@ -127,7 +128,8 @@ func (s *SubmoduleSuite) TestUpdateWithRecursion(c *C) {
 
 	c.Assert(err, IsNil)
 
-	_, err = s.Worktree.fs.Stat("itself/basic/LICENSE")
+	fs := s.Worktree.Filesystem
+	_, err = fs.Stat(fs.Join("itself", "basic", "LICENSE"))
 	c.Assert(err, IsNil)
 }
 
@@ -188,4 +190,15 @@ func (s *SubmoduleSuite) TestSubmodulesStatus(c *C) {
 	status, err := sm.Status()
 	c.Assert(err, IsNil)
 	c.Assert(status, HasLen, 2)
+}
+
+func (s *SubmoduleSuite) TestSubmodulesUpdateContext(c *C) {
+	sm, err := s.Worktree.Submodules()
+	c.Assert(err, IsNil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = sm.UpdateContext(ctx, &SubmoduleUpdateOptions{Init: true})
+	c.Assert(err, NotNil)
 }

@@ -1,4 +1,4 @@
-package client
+package client // import "github.com/docker/docker/client"
 
 import (
 	"bytes"
@@ -11,6 +11,8 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/network"
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/context"
 )
 
@@ -19,20 +21,29 @@ func TestNetworkInspectError(t *testing.T) {
 		client: newMockClient(errorMock(http.StatusInternalServerError, "Server error")),
 	}
 
-	_, err := client.NetworkInspect(context.Background(), "nothing", false)
-	if err == nil || err.Error() != "Error response from daemon: Server error" {
-		t.Fatalf("expected a Server Error, got %v", err)
-	}
+	_, err := client.NetworkInspect(context.Background(), "nothing", types.NetworkInspectOptions{})
+	assert.EqualError(t, err, "Error response from daemon: Server error")
 }
 
-func TestNetworkInspectContainerNotFound(t *testing.T) {
+func TestNetworkInspectNotFoundError(t *testing.T) {
 	client := &Client{
-		client: newMockClient(errorMock(http.StatusNotFound, "Server error")),
+		client: newMockClient(errorMock(http.StatusNotFound, "missing")),
 	}
 
-	_, err := client.NetworkInspect(context.Background(), "unknown", false)
-	if err == nil || !IsErrNetworkNotFound(err) {
-		t.Fatalf("expected a networkNotFound error, got %v", err)
+	_, err := client.NetworkInspect(context.Background(), "unknown", types.NetworkInspectOptions{})
+	assert.EqualError(t, err, "Error: No such network: unknown")
+	assert.True(t, IsErrNotFound(err))
+}
+
+func TestNetworkInspectWithEmptyID(t *testing.T) {
+	client := &Client{
+		client: newMockClient(func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("should not make request")
+		}),
+	}
+	_, _, err := client.NetworkInspectWithRaw(context.Background(), "", types.NetworkInspectOptions{})
+	if !IsErrNotFound(err) {
+		t.Fatalf("Expected NotFoundError, got %v", err)
 	}
 }
 
@@ -51,7 +62,14 @@ func TestNetworkInspect(t *testing.T) {
 				content []byte
 				err     error
 			)
-			if strings.HasPrefix(req.URL.RawQuery, "verbose=true") {
+			if strings.Contains(req.URL.RawQuery, "scope=global") {
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Body:       ioutil.NopCloser(bytes.NewReader(content)),
+				}, nil
+			}
+
+			if strings.Contains(req.URL.RawQuery, "verbose=true") {
 				s := map[string]network.ServiceInfo{
 					"web": {},
 				}
@@ -74,7 +92,7 @@ func TestNetworkInspect(t *testing.T) {
 		}),
 	}
 
-	r, err := client.NetworkInspect(context.Background(), "network_id", false)
+	r, err := client.NetworkInspect(context.Background(), "network_id", types.NetworkInspectOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +100,7 @@ func TestNetworkInspect(t *testing.T) {
 		t.Fatalf("expected `mynetwork`, got %s", r.Name)
 	}
 
-	r, err = client.NetworkInspect(context.Background(), "network_id", true)
+	r, err = client.NetworkInspect(context.Background(), "network_id", types.NetworkInspectOptions{Verbose: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,4 +111,7 @@ func TestNetworkInspect(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected service `web` missing in the verbose output")
 	}
+
+	_, err = client.NetworkInspect(context.Background(), "network_id", types.NetworkInspectOptions{Scope: "global"})
+	assert.EqualError(t, err, "Error: No such network: network_id")
 }

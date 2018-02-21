@@ -1,115 +1,44 @@
-package dockerfile
+package dockerfile // import "github.com/docker/docker/builder/dockerfile"
 
 import (
-	"strconv"
-	"strings"
+	"runtime"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types/backend"
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/remotecontext"
+	dockerimage "github.com/docker/docker/image"
+	"github.com/docker/docker/pkg/system"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
 
-type buildStage struct {
-	id     string
-	config *container.Config
-}
-
-func newBuildStageFromImage(image builder.Image) *buildStage {
-	return &buildStage{id: image.ImageID(), config: image.RunConfig()}
-}
-
-func (b *buildStage) ImageID() string {
-	return b.id
-}
-
-func (b *buildStage) RunConfig() *container.Config {
-	return b.config
-}
-
-func (b *buildStage) update(imageID string, runConfig *container.Config) {
-	b.id = imageID
-	b.config = runConfig
-}
-
-var _ builder.Image = &buildStage{}
-
-// buildStages tracks each stage of a build so they can be retrieved by index
-// or by name.
-type buildStages struct {
-	sequence []*buildStage
-	byName   map[string]*buildStage
-}
-
-func newBuildStages() *buildStages {
-	return &buildStages{byName: make(map[string]*buildStage)}
-}
-
-func (s *buildStages) getByName(name string) (builder.Image, bool) {
-	stage, ok := s.byName[strings.ToLower(name)]
-	return stage, ok
-}
-
-func (s *buildStages) get(indexOrName string) (builder.Image, error) {
-	index, err := strconv.Atoi(indexOrName)
-	if err == nil {
-		if err := s.validateIndex(index); err != nil {
-			return nil, err
-		}
-		return s.sequence[index], nil
-	}
-	if im, ok := s.byName[strings.ToLower(indexOrName)]; ok {
-		return im, nil
-	}
-	return nil, nil
-}
-
-func (s *buildStages) validateIndex(i int) error {
-	if i < 0 || i >= len(s.sequence)-1 {
-		if i == len(s.sequence)-1 {
-			return errors.New("refers to current build stage")
-		}
-		return errors.New("index out of bounds")
-	}
-	return nil
-}
-
-func (s *buildStages) add(name string, image builder.Image) error {
-	stage := newBuildStageFromImage(image)
-	name = strings.ToLower(name)
-	if len(name) > 0 {
-		if _, ok := s.byName[name]; ok {
-			return errors.Errorf("duplicate name %s", name)
-		}
-		s.byName[name] = stage
-	}
-	s.sequence = append(s.sequence, stage)
-	return nil
-}
-
-func (s *buildStages) update(imageID string, runConfig *container.Config) {
-	s.sequence[len(s.sequence)-1].update(imageID, runConfig)
-}
-
-type getAndMountFunc func(string) (builder.Image, builder.ReleaseableLayer, error)
+type getAndMountFunc func(string, bool) (builder.Image, builder.ReleaseableLayer, error)
 
 // imageSources mounts images and provides a cache for mounted images. It tracks
 // all images so they can be unmounted at the end of the build.
 type imageSources struct {
 	byImageID map[string]*imageMount
+	mounts    []*imageMount
 	getImage  getAndMountFunc
-	cache     pathCache // TODO: remove
 }
 
 func newImageSources(ctx context.Context, options builderOptions) *imageSources {
-	getAndMount := func(idOrRef string) (builder.Image, builder.ReleaseableLayer, error) {
+	getAndMount := func(idOrRef string, localOnly bool) (builder.Image, builder.ReleaseableLayer, error) {
+		pullOption := backend.PullOptionNoPull
+		if !localOnly {
+			if options.Options.PullParent {
+				pullOption = backend.PullOptionForcePull
+			} else {
+				pullOption = backend.PullOptionPreferLocal
+			}
+		}
+		optionsPlatform := system.ParsePlatform(options.Options.Platform)
 		return options.Backend.GetImageAndReleasableLayer(ctx, idOrRef, backend.GetImageAndLayerOptions{
-			ForcePull:  options.Options.PullParent,
+			PullOption: pullOption,
 			AuthConfig: options.Options.AuthConfigs,
 			Output:     options.ProgressWriter.Output,
+			OS:         optionsPlatform.OS,
 		})
 	}
 
@@ -119,28 +48,44 @@ func newImageSources(ctx context.Context, options builderOptions) *imageSources 
 	}
 }
 
-func (m *imageSources) Get(idOrRef string) (*imageMount, error) {
+func (m *imageSources) Get(idOrRef string, localOnly bool) (*imageMount, error) {
 	if im, ok := m.byImageID[idOrRef]; ok {
 		return im, nil
 	}
 
-	image, layer, err := m.getImage(idOrRef)
+	image, layer, err := m.getImage(idOrRef, localOnly)
 	if err != nil {
 		return nil, err
 	}
 	im := newImageMount(image, layer)
-	m.byImageID[image.ImageID()] = im
+	m.Add(im)
 	return im, nil
 }
 
 func (m *imageSources) Unmount() (retErr error) {
-	for _, im := range m.byImageID {
+	for _, im := range m.mounts {
 		if err := im.unmount(); err != nil {
 			logrus.Error(err)
 			retErr = err
 		}
 	}
 	return
+}
+
+func (m *imageSources) Add(im *imageMount) {
+	switch im.image {
+	case nil:
+		// set the OS for scratch images
+		os := runtime.GOOS
+		// Windows does not support scratch except for LCOW
+		if runtime.GOOS == "windows" {
+			os = "linux"
+		}
+		im.image = &dockerimage.Image{V1Image: dockerimage.V1Image{OS: os}}
+	default:
+		m.byImageID[im.image.ImageID()] = im
+	}
+	m.mounts = append(m.mounts, im)
 }
 
 // imageMount is a reference to an image that can be used as a builder.Source
@@ -164,7 +109,7 @@ func (im *imageMount) Source() (builder.Source, error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to mount %s", im.image.ImageID())
 		}
-		source, err := remotecontext.NewLazyContext(mountPath)
+		source, err := remotecontext.NewLazySource(mountPath)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create lazycontext for %s", mountPath)
 		}
@@ -180,11 +125,16 @@ func (im *imageMount) unmount() error {
 	if err := im.layer.Release(); err != nil {
 		return errors.Wrapf(err, "failed to unmount previous build image %s", im.image.ImageID())
 	}
+	im.layer = nil
 	return nil
 }
 
 func (im *imageMount) Image() builder.Image {
 	return im.image
+}
+
+func (im *imageMount) Layer() builder.ReleaseableLayer {
+	return im.layer
 }
 
 func (im *imageMount) ImageID() string {

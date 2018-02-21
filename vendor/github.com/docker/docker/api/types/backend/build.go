@@ -1,10 +1,22 @@
-package backend
+package backend // import "github.com/docker/docker/api/types/backend"
 
 import (
 	"io"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/streamformatter"
+)
+
+// PullOption defines different modes for accessing images
+type PullOption int
+
+const (
+	// PullOptionNoPull only returns local images
+	PullOptionNoPull PullOption = iota
+	// PullOptionForcePull always tries to pull a ref from the registry first
+	PullOptionForcePull
+	// PullOptionPreferLocal uses local image if it exists, otherwise pulls
+	PullOptionPreferLocal
 )
 
 // ProgressWriter is a data object to transport progress streams to the client
@@ -25,7 +37,8 @@ type BuildConfig struct {
 
 // GetImageAndLayerOptions are the options supported by GetImageAndReleasableLayer
 type GetImageAndLayerOptions struct {
-	ForcePull  bool
+	PullOption PullOption
 	AuthConfig map[string]types.AuthConfig
 	Output     io.Writer
+	OS         string
 }

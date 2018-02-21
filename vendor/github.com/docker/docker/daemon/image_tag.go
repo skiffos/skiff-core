@@ -1,4 +1,4 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"github.com/docker/distribution/reference"
@@ -7,23 +7,24 @@ import (
 
 // TagImage creates the tag specified by newTag, pointing to the image named
 // imageName (alternatively, imageName can also be an image ID).
-func (daemon *Daemon) TagImage(imageName, repository, tag string) error {
-	imageID, err := daemon.GetImageID(imageName)
+func (daemon *Daemon) TagImage(imageName, repository, tag string) (string, error) {
+	imageID, _, err := daemon.GetImageIDAndOS(imageName)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	newTag, err := reference.ParseNormalizedNamed(repository)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if tag != "" {
 		if newTag, err = reference.WithTag(reference.TrimNamed(newTag), tag); err != nil {
-			return err
+			return "", err
 		}
 	}
 
-	return daemon.TagImageWithReference(imageID, newTag)
+	err = daemon.TagImageWithReference(imageID, newTag)
+	return reference.FamiliarString(newTag), err
 }
 
 // TagImageWithReference adds the given reference to the image ID provided.
@@ -32,6 +33,9 @@ func (daemon *Daemon) TagImageWithReference(imageID image.ID, newTag reference.N
 		return err
 	}
 
+	if err := daemon.imageStore.SetLastUpdated(imageID); err != nil {
+		return err
+	}
 	daemon.LogImageEvent(imageID.String(), reference.FamiliarString(newTag), "tag")
 	return nil
 }

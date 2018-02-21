@@ -1,8 +1,8 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
-	"github.com/Sirupsen/logrus"
 	swarmtypes "github.com/docker/docker/api/types/swarm"
+	"github.com/sirupsen/logrus"
 )
 
 // SetContainerSecretReferences sets the container secret references needed

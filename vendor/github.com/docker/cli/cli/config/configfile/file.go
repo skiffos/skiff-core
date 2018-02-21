@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/docker/cli/cli/config/credentials"
+	"github.com/docker/cli/opts"
 	"github.com/docker/docker/api/types"
 	"github.com/pkg/errors"
 )
@@ -17,7 +19,7 @@ const (
 	// This constant is only used for really old config files when the
 	// URL wasn't saved as part of the config file and it was just
 	// assumed to be this value.
-	defaultIndexserver = "https://index.docker.io/v1/"
+	defaultIndexServer = "https://index.docker.io/v1/"
 )
 
 // ConfigFile ~/.docker/config.json file info
@@ -41,6 +43,26 @@ type ConfigFile struct {
 	ConfigFormat         string                      `json:"configFormat,omitempty"`
 	NodesFormat          string                      `json:"nodesFormat,omitempty"`
 	PruneFilters         []string                    `json:"pruneFilters,omitempty"`
+	Proxies              map[string]ProxyConfig      `json:"proxies,omitempty"`
+	Experimental         string                      `json:"experimental,omitempty"`
+	Orchestrator         string                      `json:"orchestrator,omitempty"`
+}
+
+// ProxyConfig contains proxy configuration settings
+type ProxyConfig struct {
+	HTTPProxy  string `json:"httpProxy,omitempty"`
+	HTTPSProxy string `json:"httpsProxy,omitempty"`
+	NoProxy    string `json:"noProxy,omitempty"`
+	FTPProxy   string `json:"ftpProxy,omitempty"`
+}
+
+// New initializes an empty configuration file for the given filename 'fn'
+func New(fn string) *ConfigFile {
+	return &ConfigFile{
+		AuthConfigs: make(map[string]types.AuthConfig),
+		HTTPHeaders: make(map[string]string),
+		Filename:    fn,
+	}
 }
 
 // LegacyLoadFromReader reads the non-nested configuration data given and sets up the
@@ -65,8 +87,8 @@ func (configFile *ConfigFile) LegacyLoadFromReader(configData io.Reader) error {
 		if err != nil {
 			return err
 		}
-		authConfig.ServerAddress = defaultIndexserver
-		configFile.AuthConfigs[defaultIndexserver] = authConfig
+		authConfig.ServerAddress = defaultIndexServer
+		configFile.AuthConfigs[defaultIndexServer] = authConfig
 	} else {
 		for k, authConfig := range configFile.AuthConfigs {
 			authConfig.Username, authConfig.Password, err = decodeAuth(authConfig.Auth)
@@ -106,6 +128,11 @@ func (configFile *ConfigFile) ContainsAuth() bool {
 	return configFile.CredentialsStore != "" ||
 		len(configFile.CredentialHelpers) > 0 ||
 		len(configFile.AuthConfigs) > 0
+}
+
+// GetAuthConfigs returns the mapping of repo to auth configuration
+func (configFile *ConfigFile) GetAuthConfigs() map[string]types.AuthConfig {
+	return configFile.AuthConfigs
 }
 
 // SaveToWriter encodes and writes out all the authorization information to
@@ -152,6 +179,39 @@ func (configFile *ConfigFile) Save() error {
 	return configFile.SaveToWriter(f)
 }
 
+// ParseProxyConfig computes proxy configuration by retrieving the config for the provided host and
+// then checking this against any environment variables provided to the container
+func (configFile *ConfigFile) ParseProxyConfig(host string, runOpts []string) map[string]*string {
+	var cfgKey string
+
+	if _, ok := configFile.Proxies[host]; !ok {
+		cfgKey = "default"
+	} else {
+		cfgKey = host
+	}
+
+	config := configFile.Proxies[cfgKey]
+	permitted := map[string]*string{
+		"HTTP_PROXY":  &config.HTTPProxy,
+		"HTTPS_PROXY": &config.HTTPSProxy,
+		"NO_PROXY":    &config.NoProxy,
+		"FTP_PROXY":   &config.FTPProxy,
+	}
+	m := opts.ConvertKVStringsToMapWithNil(runOpts)
+	for k := range permitted {
+		if *permitted[k] == "" {
+			continue
+		}
+		if _, ok := m[k]; !ok {
+			m[k] = permitted[k]
+		}
+		if _, ok := m[strings.ToLower(k)]; !ok {
+			m[strings.ToLower(k)] = permitted[k]
+		}
+	}
+	return m
+}
+
 // encodeAuth creates a base64 encoded string to containing authorization information
 func encodeAuth(authConfig *types.AuthConfig) string {
 	if authConfig.Username == "" && authConfig.Password == "" {
@@ -187,4 +247,63 @@ func decodeAuth(authStr string) (string, string, error) {
 	}
 	password := strings.Trim(arr[1], "\x00")
 	return arr[0], password, nil
+}
+
+// GetCredentialsStore returns a new credentials store from the settings in the
+// configuration file
+func (configFile *ConfigFile) GetCredentialsStore(registryHostname string) credentials.Store {
+	if helper := getConfiguredCredentialStore(configFile, registryHostname); helper != "" {
+		return newNativeStore(configFile, helper)
+	}
+	return credentials.NewFileStore(configFile)
+}
+
+// var for unit testing.
+var newNativeStore = func(configFile *ConfigFile, helperSuffix string) credentials.Store {
+	return credentials.NewNativeStore(configFile, helperSuffix)
+}
+
+// GetAuthConfig for a repository from the credential store
+func (configFile *ConfigFile) GetAuthConfig(registryHostname string) (types.AuthConfig, error) {
+	return configFile.GetCredentialsStore(registryHostname).Get(registryHostname)
+}
+
+// getConfiguredCredentialStore returns the credential helper configured for the
+// given registry, the default credsStore, or the empty string if neither are
+// configured.
+func getConfiguredCredentialStore(c *ConfigFile, registryHostname string) string {
+	if c.CredentialHelpers != nil && registryHostname != "" {
+		if helper, exists := c.CredentialHelpers[registryHostname]; exists {
+			return helper
+		}
+	}
+	return c.CredentialsStore
+}
+
+// GetAllCredentials returns all of the credentials stored in all of the
+// configured credential stores.
+func (configFile *ConfigFile) GetAllCredentials() (map[string]types.AuthConfig, error) {
+	auths := make(map[string]types.AuthConfig)
+	addAll := func(from map[string]types.AuthConfig) {
+		for reg, ac := range from {
+			auths[reg] = ac
+		}
+	}
+
+	defaultStore := configFile.GetCredentialsStore("")
+	newAuths, err := defaultStore.GetAll()
+	if err != nil {
+		return nil, err
+	}
+	addAll(newAuths)
+
+	// Auth configs from a registry-specific helper should override those from the default store.
+	for registryHostname := range configFile.CredentialHelpers {
+		newAuth, err := configFile.GetAuthConfig(registryHostname)
+		if err != nil {
+			return nil, err
+		}
+		auths[registryHostname] = newAuth
+	}
+	return auths, nil
 }

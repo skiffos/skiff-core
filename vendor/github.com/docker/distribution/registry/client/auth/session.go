@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/docker/distribution/registry/client"
 	"github.com/docker/distribution/registry/client/auth/challenge"
 	"github.com/docker/distribution/registry/client/transport"
@@ -155,9 +155,7 @@ type RepositoryScope struct {
 // using the scope grammar
 func (rs RepositoryScope) String() string {
 	repoType := "repository"
-	// Keep existing format for image class to maintain backwards compatibility
-	// with authorization servers which do not support the expanded grammar.
-	if rs.Class != "" && rs.Class != "image" {
+	if rs.Class != "" {
 		repoType = fmt.Sprintf("%s(%s)", repoType, rs.Class)
 	}
 	return fmt.Sprintf("%s:%s:%s", repoType, rs.Repository, strings.Join(rs.Actions, ","))

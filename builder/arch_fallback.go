@@ -3,7 +3,7 @@
 package builder
 
 import (
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/paralin/scratchbuild/arch"
 	"runtime"
 	"syscall"

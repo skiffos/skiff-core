@@ -6,7 +6,7 @@ import (
 	"path"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/docker-library/go-dockerlibrary/manifest"
 	"github.com/docker/distribution/reference"
 	git "gopkg.in/src-d/go-git.v4"

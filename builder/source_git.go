@@ -1,7 +1,7 @@
 package builder
 
 import (
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	git "gopkg.in/src-d/go-git.v4"
 	"os"
 )

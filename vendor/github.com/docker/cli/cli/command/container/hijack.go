@@ -6,12 +6,12 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/docker/pkg/term"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
 
@@ -110,7 +110,7 @@ func (h *hijackedIOStreamer) setupInput() (restore func(), err error) {
 
 func (h *hijackedIOStreamer) beginOutputStream(restoreInput func()) <-chan error {
 	if h.outputStream == nil && h.errorStream == nil {
-		// Ther is no need to copy output.
+		// There is no need to copy output.
 		return nil
 	}
 
@@ -163,7 +163,7 @@ func (h *hijackedIOStreamer) beginInputStream(restoreInput func()) (doneC <-chan
 			if err != nil {
 				// This error will also occur on the receive
 				// side (from stdout) where it will be
-				// propogated back to the caller.
+				// propagated back to the caller.
 				logrus.Debugf("Error sendStdin: %s", err)
 			}
 		}
@@ -185,6 +185,7 @@ func setRawTerminal(streams command.Streams) error {
 	return streams.Out().SetRawTerminal()
 }
 
+// nolint: unparam
 func restoreTerminal(streams command.Streams, in io.Closer) error {
 	streams.In().RestoreTerminal()
 	streams.Out().RestoreTerminal()

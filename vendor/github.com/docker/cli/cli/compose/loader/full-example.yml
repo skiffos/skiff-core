@@ -1,7 +1,21 @@
-version: "3.3"
+version: "3.6"
 
 services:
   foo:
+
+    build:
+      context: ./dir
+      dockerfile: Dockerfile
+      args:
+        foo: bar
+      target: foo
+      network: foo
+      cache_from:
+        - foo
+        - bar
+      labels: [FOO=BAR]
+
+
     cap_add:
       - ALL
 
@@ -31,6 +45,7 @@ services:
         failure_action: continue
         monitor: 60s
         max_failure_ratio: 0.3
+        order: start-first
       resources:
         limits:
           cpus: '0.001'
@@ -38,8 +53,15 @@ services:
         reservations:
           cpus: '0.0001'
           memory: 20M
+          generic_resources:
+            - discrete_resource_spec:
+                kind: 'gpu'
+                value: 2
+            - discrete_resource_spec:
+                kind: 'ssd'
+                value: 1
       restart_policy:
-        condition: on_failure
+        condition: on-failure
         delay: 5s
         max_attempts: 3
         window: 120s
@@ -113,6 +135,7 @@ services:
       interval: 10s
       timeout: 1s
       retries: 5
+      start_period: 15s
 
     # Any valid image reference - repo, tag, id, sha
     image: redis
@@ -170,7 +193,7 @@ services:
 
     ports:
       - 3000
-      - "3000-3005"
+      - "3001-3005"
       - "8000:8000"
       - "9090-9091:8080-8081"
       - "49100:22"
@@ -226,6 +249,10 @@ services:
         source: ./opt
         target: /opt
         consistency: cached
+      - type: tmpfs
+        target: /opt
+        tmpfs:
+          size: 10000
 
     working_dir: /code
 
@@ -280,6 +307,15 @@ volumes:
       foo: "bar"
       baz: 1
 
+  another-volume:
+    name: "user_specified_name"
+    driver: vsphere
+
+    driver_opts:
+      # Values can be strings or numbers
+      foo: "bar"
+      baz: 1
+
   external-volume:
     # Specifies that a pre-existing volume called "external-volume"
     # can be referred to within this file as "external-volume"
@@ -288,5 +324,12 @@ volumes:
   other-external-volume:
     # Specifies that a pre-existing volume called "my-cool-volume"
     # can be referred to within this file as "other-external-volume"
+    # This example uses the deprecated "volume.external.name" (replaced by "volume.name")
     external:
       name: my-cool-volume
+
+  external-volume3:
+    # Specifies that a pre-existing volume called "this-is-volume3"
+    # can be referred to within this file as "external-volume3"
+    name: this-is-volume3
+    external: true

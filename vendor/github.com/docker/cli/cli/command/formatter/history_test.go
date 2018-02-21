@@ -10,7 +10,6 @@ import (
 
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/pkg/stringid"
-	"github.com/docker/docker/pkg/stringutils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -51,17 +50,21 @@ func TestHistoryContext_ID(t *testing.T) {
 }
 
 func TestHistoryContext_CreatedSince(t *testing.T) {
-	unixTime := time.Now().AddDate(0, 0, -7).Unix()
-	expected := "7 days ago"
-
 	var ctx historyContext
 	cases := []historyCase{
 		{
 			historyContext{
-				h:     image.HistoryResponseItem{Created: unixTime},
+				h:     image.HistoryResponseItem{Created: time.Now().AddDate(0, 0, -7).Unix()},
 				trunc: false,
 				human: true,
-			}, expected, ctx.CreatedSince,
+			}, "7 days ago", ctx.CreatedSince,
+		},
+		{
+			historyContext{
+				h:     image.HistoryResponseItem{Created: time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC).Unix()},
+				trunc: false,
+				human: false,
+			}, "2009-11-10T23:00:00Z", ctx.CreatedSince,
 		},
 	}
 
@@ -92,7 +95,7 @@ func TestHistoryContext_CreatedBy(t *testing.T) {
 			historyContext{
 				h:     image.HistoryResponseItem{CreatedBy: withTabs},
 				trunc: true,
-			}, stringutils.Ellipsis(expected, 45), ctx.CreatedBy,
+			}, Ellipsis(expected, 45), ctx.CreatedBy,
 		},
 	}
 
@@ -187,7 +190,7 @@ imageID3            24 hours ago        /bin/bash ls                            
 imageID4            24 hours ago        /bin/bash grep                                                                                                                 183MB               Hi
 `
 	expectedTrunc := `IMAGE               CREATED             CREATED BY                                      SIZE                COMMENT
-imageID1            24 hours ago        /bin/bash ls && npm i && npm run test && k...   183MB               Hi
+imageID1            24 hours ago        /bin/bash ls && npm i && npm run test && kar…   183MB               Hi
 imageID2            24 hours ago        /bin/bash echo                                  183MB               Hi
 imageID3            24 hours ago        /bin/bash ls                                    183MB               Hi
 imageID4            24 hours ago        /bin/bash grep                                  183MB               Hi

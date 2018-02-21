@@ -1,15 +1,15 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"fmt"
 	"io/ioutil"
 	"os"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/libnetwork"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]string, error) {
@@ -21,11 +21,14 @@ func (daemon *Daemon) setupConfigDir(c *container.Container) (setupErr error) {
 		return nil
 	}
 
-	localPath := c.ConfigsDirPath()
+	localPath, err := c.ConfigsDirPath()
+	if err != nil {
+		return err
+	}
 	logrus.Debugf("configs: setting up config dir: %s", localPath)
 
 	// create local config root
-	if err := system.MkdirAllWithACL(localPath, 0); err != nil {
+	if err := system.MkdirAllWithACL(localPath, 0, system.SddlAdministratorsLocalSystem); err != nil {
 		return errors.Wrap(err, "error creating config dir")
 	}
 
@@ -48,14 +51,17 @@ func (daemon *Daemon) setupConfigDir(c *container.Container) (setupErr error) {
 			continue
 		}
 
-		fPath := c.ConfigFilePath(*configRef)
+		fPath, err := c.ConfigFilePath(*configRef)
+		if err != nil {
+			return err
+		}
 
 		log := logrus.WithFields(logrus.Fields{"name": configRef.File.Name, "path": fPath})
 
 		log.Debug("injecting config")
-		config := c.DependencyStore.Configs().Get(configRef.ConfigID)
-		if config == nil {
-			return fmt.Errorf("unable to get config from config store")
+		config, err := c.DependencyStore.Configs().Get(configRef.ConfigID)
+		if err != nil {
+			return errors.Wrap(err, "unable to get config from config store")
 		}
 		if err := ioutil.WriteFile(fPath, config.Spec.Data, configRef.File.Mode); err != nil {
 			return errors.Wrap(err, "error injecting config")
@@ -94,11 +100,14 @@ func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
 		return nil
 	}
 
-	localMountPath := c.SecretMountPath()
+	localMountPath, err := c.SecretMountPath()
+	if err != nil {
+		return err
+	}
 	logrus.Debugf("secrets: setting up secret dir: %s", localMountPath)
 
 	// create local secret root
-	if err := system.MkdirAllWithACL(localMountPath, 0); err != nil {
+	if err := system.MkdirAllWithACL(localMountPath, 0, system.SddlAdministratorsLocalSystem); err != nil {
 		return errors.Wrap(err, "error creating secret local directory")
 	}
 
@@ -123,14 +132,17 @@ func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
 
 		// secrets are created in the SecretMountPath on the host, at a
 		// single level
-		fPath := c.SecretFilePath(*s)
+		fPath, err := c.SecretFilePath(*s)
+		if err != nil {
+			return err
+		}
 		logrus.WithFields(logrus.Fields{
 			"name": s.File.Name,
 			"path": fPath,
 		}).Debug("injecting secret")
-		secret := c.DependencyStore.Secrets().Get(s.SecretID)
-		if secret == nil {
-			return fmt.Errorf("unable to get secret from secret store")
+		secret, err := c.DependencyStore.Secrets().Get(s.SecretID)
+		if err != nil {
+			return errors.Wrap(err, "unable to get secret from secret store")
 		}
 		if err := ioutil.WriteFile(fPath, secret.Spec.Data, s.File.Mode); err != nil {
 			return errors.Wrap(err, "error injecting secret")
@@ -153,13 +165,50 @@ func enableIPOnPredefinedNetwork() bool {
 }
 
 func (daemon *Daemon) isNetworkHotPluggable() bool {
-	return false
+	return true
 }
 
 func setupPathsAndSandboxOptions(container *container.Container, sboxOptions *[]libnetwork.SandboxOption) error {
 	return nil
 }
 
-func initializeNetworkingPaths(container *container.Container, nc *container.Container) {
+func (daemon *Daemon) initializeNetworkingPaths(container *container.Container, nc *container.Container) error {
+
+	if nc.HostConfig.Isolation.IsHyperV() {
+		return fmt.Errorf("sharing of hyperv containers network is not supported")
+	}
+
 	container.NetworkSharedContainerID = nc.ID
+
+	if nc.NetworkSettings != nil {
+		for n := range nc.NetworkSettings.Networks {
+			sn, err := daemon.FindNetwork(n)
+			if err != nil {
+				continue
+			}
+
+			ep, err := nc.GetEndpointInNetwork(sn)
+			if err != nil {
+				continue
+			}
+
+			data, err := ep.DriverInfo()
+			if err != nil {
+				continue
+			}
+
+			if data["GW_INFO"] != nil {
+				gwInfo := data["GW_INFO"].(map[string]interface{})
+				if gwInfo["hnsid"] != nil {
+					container.SharedEndpointList = append(container.SharedEndpointList, gwInfo["hnsid"].(string))
+				}
+			}
+
+			if data["hnsid"] != nil {
+				container.SharedEndpointList = append(container.SharedEndpointList, data["hnsid"].(string))
+			}
+		}
+	}
+
+	return nil
 }

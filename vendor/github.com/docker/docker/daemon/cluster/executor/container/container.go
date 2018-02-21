@@ -1,4 +1,4 @@
-package container
+package container // import "github.com/docker/docker/daemon/cluster/executor/container"
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
@@ -25,6 +25,7 @@ import (
 	netconst "github.com/docker/libnetwork/datastore"
 	"github.com/docker/swarmkit/agent/exec"
 	"github.com/docker/swarmkit/api"
+	"github.com/docker/swarmkit/api/genericresource"
 	"github.com/docker/swarmkit/template"
 	gogotypes "github.com/gogo/protobuf/types"
 )
@@ -47,12 +48,12 @@ type containerConfig struct {
 
 // newContainerConfig returns a validated container config. No methods should
 // return an error if this function returns without error.
-func newContainerConfig(t *api.Task) (*containerConfig, error) {
+func newContainerConfig(t *api.Task, node *api.NodeDescription) (*containerConfig, error) {
 	var c containerConfig
-	return &c, c.setTask(t)
+	return &c, c.setTask(t, node)
 }
 
-func (c *containerConfig) setTask(t *api.Task) error {
+func (c *containerConfig) setTask(t *api.Task, node *api.NodeDescription) error {
 	if t.Spec.GetContainer() == nil && t.Spec.GetAttachment() == nil {
 		return exec.ErrRuntimeUnsupported
 	}
@@ -77,7 +78,7 @@ func (c *containerConfig) setTask(t *api.Task) error {
 	c.task = t
 
 	if t.Spec.GetContainer() != nil {
-		preparedSpec, err := template.ExpandContainerSpec(t)
+		preparedSpec, err := template.ExpandContainerSpec(node, t)
 		if err != nil {
 			return err
 		}
@@ -89,7 +90,7 @@ func (c *containerConfig) setTask(t *api.Task) error {
 	return nil
 }
 
-func (c *containerConfig) id() string {
+func (c *containerConfig) networkAttachmentContainerID() string {
 	attachment := c.task.Spec.GetAttachment()
 	if attachment == nil {
 		return ""
@@ -115,7 +116,7 @@ func (c *containerConfig) nameOrID() string {
 		return c.name()
 	}
 
-	return c.id()
+	return c.networkAttachmentContainerID()
 }
 
 func (c *containerConfig) name() string {
@@ -167,6 +168,10 @@ func (c *containerConfig) portBindings() nat.PortMap {
 	return portBindings
 }
 
+func (c *containerConfig) isolation() enginecontainer.Isolation {
+	return convert.IsolationFromGRPC(c.spec().Isolation)
+}
+
 func (c *containerConfig) exposedPorts() map[nat.Port]struct{} {
 	exposedPorts := make(map[nat.Port]struct{})
 	if c.task.Endpoint == nil {
@@ -186,13 +191,16 @@ func (c *containerConfig) exposedPorts() map[nat.Port]struct{} {
 }
 
 func (c *containerConfig) config() *enginecontainer.Config {
+	genericEnvs := genericresource.EnvFormat(c.task.AssignedGenericResources, "DOCKER_RESOURCE")
+	env := append(c.spec().Env, genericEnvs...)
+
 	config := &enginecontainer.Config{
 		Labels:       c.labels(),
 		StopSignal:   c.spec().StopSignal,
 		Tty:          c.spec().TTY,
 		OpenStdin:    c.spec().OpenStdin,
 		User:         c.spec().User,
-		Env:          c.spec().Env,
+		Env:          env,
 		Hostname:     c.spec().Hostname,
 		WorkingDir:   c.spec().Dir,
 		Image:        c.image(),
@@ -346,6 +354,7 @@ func (c *containerConfig) hostConfig() *enginecontainer.HostConfig {
 		PortBindings:   c.portBindings(),
 		Mounts:         c.mounts(),
 		ReadonlyRootfs: c.spec().ReadOnly,
+		Isolation:      c.isolation(),
 	}
 
 	if c.spec().DNSConfig != nil {
@@ -495,7 +504,6 @@ func getEndpointConfig(na *api.NetworkAttachment, b executorpkg.Backend) *networ
 			IPv4Address: ipv4,
 			IPv6Address: ipv6,
 		},
-		Aliases:    na.Aliases,
 		DriverOpts: na.DriverAttachmentOpts,
 	}
 	if v, ok := na.Network.Spec.Annotations.Labels["com.docker.swarm.predefined"]; ok && v == "true" {
@@ -565,19 +573,6 @@ func (c *containerConfig) serviceConfig() *clustertypes.ServiceConfig {
 	}
 
 	return svcCfg
-}
-
-// networks returns a list of network names attached to the container. The
-// returned name can be used to lookup the corresponding network create
-// options.
-func (c *containerConfig) networks() []string {
-	var networks []string
-
-	for name := range c.networksAttachments {
-		networks = append(networks, name)
-	}
-
-	return networks
 }
 
 func (c *containerConfig) networkCreateRequest(name string) (clustertypes.NetworkCreateRequest, error) {

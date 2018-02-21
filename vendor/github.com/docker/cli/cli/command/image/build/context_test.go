@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/docker/cli/internal/test/testutil"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -265,4 +265,36 @@ func chdir(t *testing.T, dir string) func() {
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(dir))
 	return func() { require.NoError(t, os.Chdir(workingDirectory)) }
+}
+
+func TestIsArchive(t *testing.T) {
+	var testcases = []struct {
+		doc      string
+		header   []byte
+		expected bool
+	}{
+		{
+			doc:      "nil is not a valid header",
+			header:   nil,
+			expected: false,
+		},
+		{
+			doc:      "invalid header bytes",
+			header:   []byte{0x00, 0x01, 0x02},
+			expected: false,
+		},
+		{
+			doc:      "header for bzip2 archive",
+			header:   []byte{0x42, 0x5A, 0x68},
+			expected: true,
+		},
+		{
+			doc:      "header for 7zip archive is not supported",
+			header:   []byte{0x50, 0x4b, 0x03, 0x04},
+			expected: false,
+		},
+	}
+	for _, testcase := range testcases {
+		assert.Equal(t, testcase.expected, IsArchive(testcase.header), testcase.doc)
+	}
 }

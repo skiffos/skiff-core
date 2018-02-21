@@ -1,9 +1,12 @@
-package awslogs
+package awslogs // import "github.com/docker/docker/daemon/logger/awslogs"
 
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -44,6 +47,15 @@ func (l *logStream) logGenerator(lineCount int, multilineCount int) {
 			})
 		}
 	}
+}
+
+func testEventBatch(events []wrappedEvent) *eventBatch {
+	batch := newEventBatch()
+	for _, event := range events {
+		eventlen := len([]byte(*event.inputLogEvent.Message))
+		batch.add(event, eventlen)
+	}
+	return batch
 }
 
 func TestNewAWSLogsClientUserAgentHandler(t *testing.T) {
@@ -162,7 +174,7 @@ func TestCreateError(t *testing.T) {
 		client: mockClient,
 	}
 	mockClient.createLogStreamResult <- &createLogStreamResult{
-		errorResult: errors.New("Error!"),
+		errorResult: errors.New("Error"),
 	}
 
 	err := stream.create()
@@ -209,7 +221,7 @@ func TestPublishBatchSuccess(t *testing.T) {
 		},
 	}
 
-	stream.publishBatch(events)
+	stream.publishBatch(testEventBatch(events))
 	if stream.sequenceToken == nil {
 		t.Fatal("Expected non-nil sequenceToken")
 	}
@@ -243,7 +255,7 @@ func TestPublishBatchError(t *testing.T) {
 		sequenceToken: aws.String(sequenceToken),
 	}
 	mockClient.putLogEventsResult <- &putLogEventsResult{
-		errorResult: errors.New("Error!"),
+		errorResult: errors.New("Error"),
 	}
 
 	events := []wrappedEvent{
@@ -254,7 +266,7 @@ func TestPublishBatchError(t *testing.T) {
 		},
 	}
 
-	stream.publishBatch(events)
+	stream.publishBatch(testEventBatch(events))
 	if stream.sequenceToken == nil {
 		t.Fatal("Expected non-nil sequenceToken")
 	}
@@ -288,7 +300,7 @@ func TestPublishBatchInvalidSeqSuccess(t *testing.T) {
 		},
 	}
 
-	stream.publishBatch(events)
+	stream.publishBatch(testEventBatch(events))
 	if stream.sequenceToken == nil {
 		t.Fatal("Expected non-nil sequenceToken")
 	}
@@ -351,7 +363,7 @@ func TestPublishBatchAlreadyAccepted(t *testing.T) {
 		},
 	}
 
-	stream.publishBatch(events)
+	stream.publishBatch(testEventBatch(events))
 	if stream.sequenceToken == nil {
 		t.Fatal("Expected non-nil sequenceToken")
 	}
@@ -641,7 +653,7 @@ func TestCollectBatchMultilinePatternMaxEventAge(t *testing.T) {
 	})
 
 	// Fire ticker batchPublishFrequency seconds later
-	ticks <- time.Now().Add(batchPublishFrequency * time.Second)
+	ticks <- time.Now().Add(batchPublishFrequency + time.Second)
 
 	// Verify single multiline event is flushed after maximum event buffer age (batchPublishFrequency)
 	argument := <-mockClient.putLogEventsArgument
@@ -649,6 +661,20 @@ func TestCollectBatchMultilinePatternMaxEventAge(t *testing.T) {
 	assert.Equal(t, 1, len(argument.LogEvents), "Expected single multiline event")
 	assert.Equal(t, logline+"\n"+logline+"\n", *argument.LogEvents[0].Message, "Received incorrect multiline message")
 
+	// Log an event 1 second later
+	stream.Log(&logger.Message{
+		Line:      []byte(logline),
+		Timestamp: time.Now().Add(time.Second),
+	})
+
+	// Fire ticker another batchPublishFrequency seconds later
+	ticks <- time.Now().Add(2*batchPublishFrequency + time.Second)
+
+	// Verify the event buffer is truly flushed - we should only receive a single event
+	argument = <-mockClient.putLogEventsArgument
+	assert.NotNil(t, argument, "Expected non-nil PutLogEventsInput")
+	assert.Equal(t, 1, len(argument.LogEvents), "Expected single multiline event")
+	assert.Equal(t, logline+"\n", *argument.LogEvents[0].Message, "Received incorrect multiline message")
 	stream.Close()
 }
 
@@ -697,6 +723,59 @@ func TestCollectBatchMultilinePatternNegativeEventAge(t *testing.T) {
 	assert.Equal(t, 1, len(argument.LogEvents), "Expected single multiline event")
 	assert.Equal(t, logline+"\n"+logline+"\n", *argument.LogEvents[0].Message, "Received incorrect multiline message")
 
+	stream.Close()
+}
+
+func TestCollectBatchMultilinePatternMaxEventSize(t *testing.T) {
+	mockClient := newMockClient()
+	multilinePattern := regexp.MustCompile("xxxx")
+	stream := &logStream{
+		client:           mockClient,
+		logGroupName:     groupName,
+		logStreamName:    streamName,
+		multilinePattern: multilinePattern,
+		sequenceToken:    aws.String(sequenceToken),
+		messages:         make(chan *logger.Message),
+	}
+	mockClient.putLogEventsResult <- &putLogEventsResult{
+		successResult: &cloudwatchlogs.PutLogEventsOutput{
+			NextSequenceToken: aws.String(nextSequenceToken),
+		},
+	}
+	ticks := make(chan time.Time)
+	newTicker = func(_ time.Duration) *time.Ticker {
+		return &time.Ticker{
+			C: ticks,
+		}
+	}
+
+	go stream.collectBatch()
+
+	// Log max event size
+	longline := strings.Repeat("A", maximumBytesPerEvent)
+	stream.Log(&logger.Message{
+		Line:      []byte(longline),
+		Timestamp: time.Now(),
+	})
+
+	// Log short event
+	shortline := strings.Repeat("B", 100)
+	stream.Log(&logger.Message{
+		Line:      []byte(shortline),
+		Timestamp: time.Now(),
+	})
+
+	// Fire ticker
+	ticks <- time.Now().Add(batchPublishFrequency)
+
+	// Verify multiline events
+	// We expect a maximum sized event with no new line characters and a
+	// second short event with a new line character at the end
+	argument := <-mockClient.putLogEventsArgument
+	assert.NotNil(t, argument, "Expected non-nil PutLogEventsInput")
+	assert.Equal(t, 2, len(argument.LogEvents), "Expected two events")
+	assert.Equal(t, longline, *argument.LogEvents[0].Message, "Received incorrect multiline message")
+	assert.Equal(t, shortline+"\n", *argument.LogEvents[1].Message, "Received incorrect multiline message")
 	stream.Close()
 }
 
@@ -842,7 +921,8 @@ func TestCollectBatchMaxEvents(t *testing.T) {
 }
 
 func TestCollectBatchMaxTotalBytes(t *testing.T) {
-	mockClient := newMockClientBuffered(1)
+	expectedPuts := 2
+	mockClient := newMockClientBuffered(expectedPuts)
 	stream := &logStream{
 		client:        mockClient,
 		logGroupName:  groupName,
@@ -850,11 +930,14 @@ func TestCollectBatchMaxTotalBytes(t *testing.T) {
 		sequenceToken: aws.String(sequenceToken),
 		messages:      make(chan *logger.Message),
 	}
-	mockClient.putLogEventsResult <- &putLogEventsResult{
-		successResult: &cloudwatchlogs.PutLogEventsOutput{
-			NextSequenceToken: aws.String(nextSequenceToken),
-		},
+	for i := 0; i < expectedPuts; i++ {
+		mockClient.putLogEventsResult <- &putLogEventsResult{
+			successResult: &cloudwatchlogs.PutLogEventsOutput{
+				NextSequenceToken: aws.String(nextSequenceToken),
+			},
+		}
 	}
+
 	var ticks = make(chan time.Time)
 	newTicker = func(_ time.Duration) *time.Ticker {
 		return &time.Ticker{
@@ -864,32 +947,57 @@ func TestCollectBatchMaxTotalBytes(t *testing.T) {
 
 	go stream.collectBatch()
 
-	longline := strings.Repeat("A", maximumBytesPerPut)
+	numPayloads := maximumBytesPerPut / (maximumBytesPerEvent + perEventBytes)
+	// maxline is the maximum line that could be submitted after
+	// accounting for its overhead.
+	maxline := strings.Repeat("A", maximumBytesPerPut-(perEventBytes*numPayloads))
+	// This will be split and batched up to the `maximumBytesPerPut'
+	// (+/- `maximumBytesPerEvent'). This /should/ be aligned, but
+	// should also tolerate an offset within that range.
 	stream.Log(&logger.Message{
-		Line:      []byte(longline + "B"),
+		Line:      []byte(maxline[:len(maxline)/2]),
+		Timestamp: time.Time{},
+	})
+	stream.Log(&logger.Message{
+		Line:      []byte(maxline[len(maxline)/2:]),
+		Timestamp: time.Time{},
+	})
+	stream.Log(&logger.Message{
+		Line:      []byte("B"),
 		Timestamp: time.Time{},
 	})
 
-	// no ticks
+	// no ticks, guarantee batch by size (and chan close)
 	stream.Close()
 
 	argument := <-mockClient.putLogEventsArgument
 	if argument == nil {
 		t.Fatal("Expected non-nil PutLogEventsInput")
 	}
-	bytes := 0
+
+	// Should total to the maximum allowed bytes.
+	eventBytes := 0
 	for _, event := range argument.LogEvents {
-		bytes += len(*event.Message)
+		eventBytes += len(*event.Message)
 	}
-	if bytes > maximumBytesPerPut {
-		t.Errorf("Expected <= %d bytes but was %d", maximumBytesPerPut, bytes)
+	eventsOverhead := len(argument.LogEvents) * perEventBytes
+	payloadTotal := eventBytes + eventsOverhead
+	// lowestMaxBatch allows the payload to be offset if the messages
+	// don't lend themselves to align with the maximum event size.
+	lowestMaxBatch := maximumBytesPerPut - maximumBytesPerEvent
+
+	if payloadTotal > maximumBytesPerPut {
+		t.Errorf("Expected <= %d bytes but was %d", maximumBytesPerPut, payloadTotal)
+	}
+	if payloadTotal < lowestMaxBatch {
+		t.Errorf("Batch to be no less than %d but was %d", lowestMaxBatch, payloadTotal)
 	}
 
 	argument = <-mockClient.putLogEventsArgument
 	if len(argument.LogEvents) != 1 {
 		t.Errorf("Expected LogEvents to contain 1 elements, but contains %d", len(argument.LogEvents))
 	}
-	message := *argument.LogEvents[0].Message
+	message := *argument.LogEvents[len(argument.LogEvents)-1].Message
 	if message[len(message)-1:] != "B" {
 		t.Errorf("Expected message to be %s but was %s", "B", message[len(message)-1:])
 	}
@@ -1035,6 +1143,11 @@ func TestCreateTagSuccess(t *testing.T) {
 	}
 }
 
+func TestIsSizedLogger(t *testing.T) {
+	awslogs := &logStream{}
+	assert.Implements(t, (*logger.SizedLogger)(nil), awslogs, "awslogs should implement SizedLogger")
+}
+
 func BenchmarkUnwrapEvents(b *testing.B) {
 	events := make([]wrappedEvent, maximumLogEventsPerPut)
 	for i := 0; i < maximumLogEventsPerPut; i++ {
@@ -1050,4 +1163,122 @@ func BenchmarkUnwrapEvents(b *testing.B) {
 		res := unwrapEvents(events)
 		as.Len(res, maximumLogEventsPerPut)
 	}
+}
+
+func TestNewAWSLogsClientCredentialEndpointDetect(t *testing.T) {
+	// required for the cloudwatchlogs client
+	os.Setenv("AWS_REGION", "us-west-2")
+	defer os.Unsetenv("AWS_REGION")
+
+	credsResp := `{
+		"AccessKeyId" :    "test-access-key-id",
+		"SecretAccessKey": "test-secret-access-key"
+		}`
+
+	expectedAccessKeyID := "test-access-key-id"
+	expectedSecretAccessKey := "test-secret-access-key"
+
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, credsResp)
+	}))
+	defer testServer.Close()
+
+	// set the SDKEndpoint in the driver
+	newSDKEndpoint = testServer.URL
+
+	info := logger.Info{
+		Config: map[string]string{},
+	}
+
+	info.Config["awslogs-credentials-endpoint"] = "/creds"
+
+	c, err := newAWSLogsClient(info)
+	assert.NoError(t, err)
+
+	client := c.(*cloudwatchlogs.CloudWatchLogs)
+
+	creds, err := client.Config.Credentials.Get()
+	assert.NoError(t, err)
+
+	assert.Equal(t, expectedAccessKeyID, creds.AccessKeyID)
+	assert.Equal(t, expectedSecretAccessKey, creds.SecretAccessKey)
+}
+
+func TestNewAWSLogsClientCredentialEnvironmentVariable(t *testing.T) {
+	// required for the cloudwatchlogs client
+	os.Setenv("AWS_REGION", "us-west-2")
+	defer os.Unsetenv("AWS_REGION")
+
+	expectedAccessKeyID := "test-access-key-id"
+	expectedSecretAccessKey := "test-secret-access-key"
+
+	os.Setenv("AWS_ACCESS_KEY_ID", expectedAccessKeyID)
+	defer os.Unsetenv("AWS_ACCESS_KEY_ID")
+
+	os.Setenv("AWS_SECRET_ACCESS_KEY", expectedSecretAccessKey)
+	defer os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+
+	info := logger.Info{
+		Config: map[string]string{},
+	}
+
+	c, err := newAWSLogsClient(info)
+	assert.NoError(t, err)
+
+	client := c.(*cloudwatchlogs.CloudWatchLogs)
+
+	creds, err := client.Config.Credentials.Get()
+	assert.NoError(t, err)
+
+	assert.Equal(t, expectedAccessKeyID, creds.AccessKeyID)
+	assert.Equal(t, expectedSecretAccessKey, creds.SecretAccessKey)
+
+}
+
+func TestNewAWSLogsClientCredentialSharedFile(t *testing.T) {
+	// required for the cloudwatchlogs client
+	os.Setenv("AWS_REGION", "us-west-2")
+	defer os.Unsetenv("AWS_REGION")
+
+	expectedAccessKeyID := "test-access-key-id"
+	expectedSecretAccessKey := "test-secret-access-key"
+
+	contentStr := `
+	[default]
+	aws_access_key_id = "test-access-key-id"
+	aws_secret_access_key =  "test-secret-access-key"
+	`
+	content := []byte(contentStr)
+
+	tmpfile, err := ioutil.TempFile("", "example")
+	defer os.Remove(tmpfile.Name()) // clean up
+	assert.NoError(t, err)
+
+	_, err = tmpfile.Write(content)
+	assert.NoError(t, err)
+
+	err = tmpfile.Close()
+	assert.NoError(t, err)
+
+	os.Unsetenv("AWS_ACCESS_KEY_ID")
+	os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+
+	os.Setenv("AWS_SHARED_CREDENTIALS_FILE", tmpfile.Name())
+	defer os.Unsetenv("AWS_SHARED_CREDENTIALS_FILE")
+
+	info := logger.Info{
+		Config: map[string]string{},
+	}
+
+	c, err := newAWSLogsClient(info)
+	assert.NoError(t, err)
+
+	client := c.(*cloudwatchlogs.CloudWatchLogs)
+
+	creds, err := client.Config.Credentials.Get()
+	assert.NoError(t, err)
+
+	assert.Equal(t, expectedAccessKeyID, creds.AccessKeyID)
+	assert.Equal(t, expectedSecretAccessKey, creds.SecretAccessKey)
 }

@@ -1,10 +1,13 @@
-package fakecontext
+package fakecontext // import "github.com/docker/docker/integration-cli/cli/build/fakecontext"
 
 import (
 	"bytes"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+
+	"github.com/docker/docker/pkg/archive"
 )
 
 type testingT interface {
@@ -109,4 +112,13 @@ func (f *Fake) Delete(file string) error {
 // Close deletes the context
 func (f *Fake) Close() error {
 	return os.RemoveAll(f.Dir)
+}
+
+// AsTarReader returns a ReadCloser with the contents of Dir as a tar archive.
+func (f *Fake) AsTarReader(t testingT) io.ReadCloser {
+	reader, err := archive.TarWithOptions(f.Dir, &archive.TarOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create tar from %s: %s", f.Dir, err)
+	}
+	return reader
 }

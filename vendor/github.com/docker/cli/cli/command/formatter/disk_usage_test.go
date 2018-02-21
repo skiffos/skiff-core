@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/gotestyourself/gotestyourself/golden"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,6 +24,7 @@ func TestDiskUsageContextFormatWrite(t *testing.T) {
 Images              0                   0                   0B                  0B
 Containers          0                   0                   0B                  0B
 Local Volumes       0                   0                   0B                  0B
+Build Cache                                                 0B                  0B
 `,
 		},
 		{
@@ -38,6 +40,9 @@ CONTAINER ID        IMAGE               COMMAND             LOCAL VOLUMES       
 Local Volumes space usage:
 
 VOLUME NAME         LINKS               SIZE
+
+Build cache usage: 0B
+
 `,
 		},
 		// Errors
@@ -70,6 +75,7 @@ VOLUME NAME         LINKS               SIZE
 Images              0                   0                   0B                  0B
 Containers          0                   0                   0B                  0B
 Local Volumes       0                   0                   0B                  0B
+Build Cache                                                 0B                  0B
 `,
 		},
 		{
@@ -78,11 +84,7 @@ Local Volumes       0                   0                   0B                  
 					Format: NewDiskUsageFormat("table {{.Type}}\t{{.Active}}"),
 				},
 			},
-			`TYPE                ACTIVE
-Images              0
-Containers          0
-Local Volumes       0
-`,
+			string(golden.Get(t, "disk-usage-context-write-custom.golden")),
 		},
 		// Raw Format
 		{
@@ -91,25 +93,7 @@ Local Volumes       0
 					Format: NewDiskUsageFormat("raw"),
 				},
 			},
-			`type: Images
-total: 0
-active: 0
-size: 0B
-reclaimable: 0B
-
-type: Containers
-total: 0
-active: 0
-size: 0B
-reclaimable: 0B
-
-type: Local Volumes
-total: 0
-active: 0
-size: 0B
-reclaimable: 0B
-
-`,
+			string(golden.Get(t, "disk-usage-raw-format.golden")),
 		},
 	}
 

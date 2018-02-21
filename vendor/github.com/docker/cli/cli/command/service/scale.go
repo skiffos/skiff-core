@@ -10,19 +10,30 @@ import (
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/versions"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
-func newScaleCommand(dockerCli *command.DockerCli) *cobra.Command {
-	return &cobra.Command{
+type scaleOptions struct {
+	detach bool
+}
+
+func newScaleCommand(dockerCli command.Cli) *cobra.Command {
+	options := &scaleOptions{}
+
+	cmd := &cobra.Command{
 		Use:   "scale SERVICE=REPLICAS [SERVICE=REPLICAS...]",
 		Short: "Scale one or multiple replicated services",
 		Args:  scaleArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runScale(dockerCli, args)
+			return runScale(dockerCli, options, args)
 		},
 	}
+
+	flags := cmd.Flags()
+	addDetachFlag(flags, &options.detach)
+	return cmd
 }
 
 func scaleArgs(cmd *cobra.Command, args []string) error {
@@ -43,8 +54,11 @@ func scaleArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runScale(dockerCli *command.DockerCli, args []string) error {
+func runScale(dockerCli command.Cli, options *scaleOptions, args []string) error {
 	var errs []string
+	var serviceIDs []string
+	ctx := context.Background()
+
 	for _, arg := range args {
 		parts := strings.SplitN(arg, "=", 2)
 		serviceID, scaleStr := parts[0], parts[1]
@@ -56,8 +70,21 @@ func runScale(dockerCli *command.DockerCli, args []string) error {
 			continue
 		}
 
-		if err := runServiceScale(dockerCli, serviceID, scale); err != nil {
+		if err := runServiceScale(ctx, dockerCli, serviceID, scale); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", serviceID, err))
+		} else {
+			serviceIDs = append(serviceIDs, serviceID)
+		}
+
+	}
+
+	if len(serviceIDs) > 0 {
+		if !options.detach && versions.GreaterThanOrEqualTo(dockerCli.Client().ClientVersion(), "1.29") {
+			for _, serviceID := range serviceIDs {
+				if err := waitOnService(ctx, dockerCli, serviceID, false); err != nil {
+					errs = append(errs, fmt.Sprintf("%s: %v", serviceID, err))
+				}
+			}
 		}
 	}
 
@@ -67,9 +94,8 @@ func runScale(dockerCli *command.DockerCli, args []string) error {
 	return errors.Errorf(strings.Join(errs, "\n"))
 }
 
-func runServiceScale(dockerCli *command.DockerCli, serviceID string, scale uint64) error {
+func runServiceScale(ctx context.Context, dockerCli command.Cli, serviceID string, scale uint64) error {
 	client := dockerCli.Client()
-	ctx := context.Background()
 
 	service, _, err := client.ServiceInspectWithRaw(ctx, serviceID, types.ServiceInspectOptions{})
 	if err != nil {

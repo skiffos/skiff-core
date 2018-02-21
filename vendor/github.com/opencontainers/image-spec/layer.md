@@ -1,13 +1,20 @@
 # Image Layer Filesystem Changeset
 
 This document describes how to serialize a filesystem and filesystem changes like removed files into a blob called a layer.
-One or more layers are ordered on top of each other to create a complete filesystem.
+One or more layers are applied on top of each other to create a complete filesystem.
 This document will use a concrete example to illustrate how to create and consume these filesystem layers.
+
+This section defines the `application/vnd.oci.image.layer.v1.tar`, `application/vnd.oci.image.layer.v1.tar+gzip`, `application/vnd.oci.image.layer.nondistributable.v1.tar`, and `application/vnd.oci.image.layer.nondistributable.v1.tar+gzip` [media types](media-types.md).
+
+## `+gzip` Media Types
+
+* The media type `application/vnd.oci.image.layer.v1.tar+gzip` represents an `application/vnd.oci.image.layer.v1.tar` payload which has been compressed with [gzip][rfc1952_2].
+* The media type `application/vnd.oci.image.layer.nondistributable.v1.tar+gzip` represents an `application/vnd.oci.image.layer.nondistributable.v1.tar` payload which has been compressed with [gzip][rfc1952_2].
 
 ## Distributable Format
 
-Layer Changesets for the [mediatype](./media-types.md) `application/vnd.oci.image.layer.tar+gzip` MUST be packaged in [tar archive][tar-archive].
-Layer Changesets for the [mediatype](./media-types.md) `application/vnd.oci.image.layer.tar+gzip` MUST NOT include duplicate entries for file paths in the resulting [tar archive][tar-archive].
+* Layer Changesets for the [media type](media-types.md) `application/vnd.oci.image.layer.v1.tar` MUST be packaged in [tar archive][tar-archive].
+* Layer Changesets for the [media type](media-types.md) `application/vnd.oci.image.layer.v1.tar` MUST NOT include duplicate entries for file paths in the resulting [tar archive][tar-archive].
 
 ## Change Types
 
@@ -23,7 +30,7 @@ Removals are represented using "[whiteout](#whiteouts)" file entries (See [Repre
 
 ### File Types
 
-Throughout this document section, the use of word "files" or "entries" includes:
+Throughout this document section, the use of word "files" or "entries" includes the following, where supported:
 
 * regular files
 * directories
@@ -44,9 +51,52 @@ Where supported, MUST include file attributes for Additions and Modifications in
     * Group Name (`gname`) *secondary to `gid`*
 * Mode (`mode`)
 * Extended Attributes (`xattrs`)
-* Symlink reference (`linkname`)
+* Symlink reference (`linkname` + symbolic link type)
+* [Hardlink](#hardlinks) reference (`linkname`)
 
 [Sparse files](https://en.wikipedia.org/wiki/Sparse_file) SHOULD NOT be used because they lack consistent support across tar implementations.
+
+#### Hardlinks
+
+* Hardlinks are a [POSIX concept](http://pubs.opengroup.org/onlinepubs/9699919799/functions/link.html) for having one or more directory entries for the same file on the same device.
+* Not all filesystems support hardlinks (e.g. [FAT](https://en.wikipedia.org/wiki/File_Allocation_Table)).
+* Hardlinks are possible with all [file types](#file-types) except `directories`.
+* Non-directory files are considered "hardlinked" when their link count is greater than 1.
+* Hardlinked files are on a same device (i.e. comparing Major:Minor pair) and have the same inode.
+* The corresponding files that share the link with the > 1 linkcount may be outside the directory that the changeset is being produced from, in which case the `linkname` is not recorded in the changeset.
+* Hardlinks are stored in a tar archive with type of a `1` char, per the [GNU Basic Tar Format][gnu-tar-standard] and [libarchive tar(5)][libarchive-tar].
+* While approaches to deriving new or changed hardlinks may vary, a possible approach is:
+
+```
+SET LinkMap to map[< Major:Minor String >]map[< inode integer >]< path string >
+SET LinkNames to map[< src path string >]< dest path string >
+FOR each path in root path
+  IF path type is directory
+    CONTINUE
+  ENDIF
+  SET filestat to stat(path)
+  IF filestat num of links == 1
+    CONTINUE
+  ENDIF
+  IF LinkMap[filestat device][filestat inode] is not empty
+    SET LinkNames[path] to LinkMap[filestat device][filestat inode]
+  ELSE
+    SET LinkMap[filestat device][filestat inode] to path
+  ENDIF
+END FOR
+```
+
+With this approach, the link map and links names of a directory could be compared against that of another directory to derive additions and changes to hardlinks.
+
+#### Platform-specific attributes
+
+Implementations on Windows MUST support these additional attributes, encoded in [PAX vendor
+extensions](https://github.com/libarchive/libarchive/wiki/ManPageTar5#pax-interchange-format) as follows:
+
+* [Windows file attributes](https://msdn.microsoft.com/en-us/library/windows/desktop/gg258117(v=vs.85).aspx) (`MSWINDOWS.fileattr`)
+* [Security descriptor](https://msdn.microsoft.com/en-us/library/cc230366.aspx) (`MSWINDOWS.rawsd`): base64-encoded self-relative binary security descriptor
+* Mount points (`MSWINDOWS.mountpoint`): if present on a directory symbolic link, then the link should be created as a [directory junction](https://en.wikipedia.org/wiki/NTFS_junction_point)
+* Creation time (`LIBARCHIVE.creationtime`)
 
 ## Creating
 
@@ -90,7 +140,7 @@ Entries for the following files:
 
 ### Populate a Comparison Filesystem
 
-Create a new directory and initialize it with an copy or snapshot of the prior root filesystem.
+Create a new directory and initialize it with a copy or snapshot of the prior root filesystem.
 Example commands that can preserve [file attributes](#file-attributes) to make this copy are:
 * [cp(1)](http://linux.die.net/man/1/cp): `cp -a rootfs-c9d-v1/ rootfs-c9d-v1.s1/`
 * [rsync(1)](http://linux.die.net/man/1/rsync):  `rsync -aHAX rootfs-c9d-v1/ rootfs-c9d-v1.s1/`
@@ -166,36 +216,32 @@ The resulting tar archive for `rootfs-c9d-v1.s1` has the following entries:
 ./etc/.wh.my-app-config
 ```
 
-Where the basename name of `./etc/my-app-config` is now prefixed with `.wh.`, and will therefore be removed when the changeset is applied.
+To signify that the resource `./etc/my-app-config` MUST be removed when the changeset is applied, the basename of the entry is prefixed with `.wh.`.
 
-## Applying
+## Applying Changesets
 
-Layer Changesets of [mediatype](./media-types.md) `application/vnd.oci.image.layer.tar+gzip` are applied rather than strictly extracted in normal fashion for tar archives.
-
-Applying a layer changeset requires consideration for the [whiteout](#whiteouts) files.
-In the absence of any [whiteout](#whiteouts) files in a layer changeset, the archive is extracted like a regular tar archive.
-
+* Layer Changesets of [media type](media-types.md) `application/vnd.oci.image.layer.v1.tar` are _applied_, rather than simply extracted as tar archives.
+* Applying a layer changeset requires special consideration for the [whiteout](#whiteouts) files.
+* In the absence of any [whiteout](#whiteouts) files in a layer changeset, the archive is extracted like a regular tar archive.
 
 ### Changeset over existing files
 
-This section covers applying an entry in a layer changeset, if the file path already exists.
+This section specifies applying an entry from a layer changeset if the target path already exists.
 
-If the file path is a directory, then the existing path just has it's attribute set from the layer changeset for that filepath.
-If the file path is any other file type (regular file, FIFO, etc), then the:
-* file path is unlinked (See [`unlink(2)`](http://linux.die.net/man/2/unlink))
-* create the file
-    * If a regular file then content written.
-* set attributes on the filepath
+If the entry and the existing path are both directories, then the existing path's attributes MUST be replaced by those of the entry in the changeset.
+In all other cases, the implementation MUST do the semantic equivalent of the following:
+- removing the file path (e.g. [`unlink(2)`](http://linux.die.net/man/2/unlink) on Linux systems)
+- recreating the file path, based on the contents and attributes of the changeset entry
 
 ## Whiteouts
 
-A whiteout file is an empty file with a special filename that signifies a path should be deleted.
-A whiteout filename consists of the prefix .wh. plus the basename of the path to be deleted.
-As files prefixed with `.wh.` are special whiteout markers, it is not possible to create a filesystem which has a file or directory with a name beginning with `.wh.`.
+* A whiteout file is an empty file with a special filename that signifies a path should be deleted.
+* A whiteout filename consists of the prefix `.wh.` plus the basename of the path to be deleted.
+* As files prefixed with `.wh.` are special whiteout markers, it is not possible to create a filesystem which has a file or directory with a name beginning with `.wh.`.
+* Once a whiteout is applied, the whiteout itself MUST also be hidden.
+* Whiteout files MUST only apply to resources in lower/parent layers.
+* Files that are present in the same layer as a whiteout file can only be hidden by whiteout files in subsequent layers.
 
-Once a whiteout is applied, the whiteout itself MUST also be hidden.
-Whiteout files MUST only apply to resources in lower/parent layers.
-Files that are present in the same layer as a whiteout file can only be hidden by whiteout files in subsequent layers.
 The following is a base layer with several resources:
 
 ```
@@ -230,8 +276,9 @@ Implementations SHOULD generate layers such that the whiteout files appear befor
 
 ### Opaque Whiteout
 
-In addition to expressing that a single entry should be removed from a lower layer, layers may remove all of the children using an opaque whiteout entry.
-An opaque whiteout entry is a file with the name `.wh..wh..opq` indicating that all siblings are hidden in the lower layer.
+* In addition to expressing that a single entry should be removed from a lower layer, layers may remove all of the children using an opaque whiteout entry.
+* An opaque whiteout entry is a file with the name `.wh..wh..opq` indicating that all siblings are hidden in the lower layer.
+
 Let's take the following base layer as an example:
 
 ```
@@ -270,4 +317,17 @@ Implementations SHOULD generate layers using _explicit whiteout_ files, but MUST
 
 Any given image is likely to be composed of several of these Image Filesystem Changeset tar archives.
 
+# Non-Distributable Layers
+
+Due to legal requirements, certain layers may not be regularly distributable.
+Such "non-distributable" layers are typically downloaded directly from a distributor but never uploaded.
+
+Non-distributable layers SHOULD be tagged with an alternative mediatype of `application/vnd.oci.image.layer.nondistributable.v1.tar`.
+Implementations SHOULD NOT upload layers tagged with this media type; however, such a media type SHOULD NOT affect whether an implementation downloads the layer.
+
+[Descriptors](descriptor.md) referencing non-distributable layers MAY include `urls` for downloading these layers directly; however, the presence of the `urls` field SHOULD NOT be used to determine whether or not a layer is non-distributable.
+
+[libarchive-tar]: https://github.com/libarchive/libarchive/wiki/ManPageTar5#POSIX_ustar_Archives
+[gnu-tar-standard]: http://www.gnu.org/software/tar/manual/html_node/Standard.html
+[rfc1952_2]: https://tools.ietf.org/html/rfc1952
 [tar-archive]: https://en.wikipedia.org/wiki/Tar_(computing)

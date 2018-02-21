@@ -1,6 +1,4 @@
-// +build windows
-
-package archive
+package archive // import "github.com/docker/docker/pkg/archive"
 
 import (
 	"archive/tar"
@@ -9,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/longpath"
 )
 
@@ -72,7 +71,7 @@ func handleLChmod(hdr *tar.Header, path string, hdrInfo os.FileInfo) error {
 	return nil
 }
 
-func getFileUIDGID(stat interface{}) (int, int, error) {
+func getFileUIDGID(stat interface{}) (idtools.IDPair, error) {
 	// no notion of file ownership mapping yet on Windows
-	return 0, 0, nil
+	return idtools.IDPair{0, 0}, nil
 }

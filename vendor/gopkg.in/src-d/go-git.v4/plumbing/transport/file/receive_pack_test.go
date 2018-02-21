@@ -3,10 +3,10 @@ package file
 import (
 	"os"
 
-	"github.com/src-d/go-git-fixtures"
 	"gopkg.in/src-d/go-git.v4/plumbing/transport/test"
 
 	. "gopkg.in/check.v1"
+	"gopkg.in/src-d/go-git-fixtures.v3"
 )
 
 type ReceivePackSuite struct {
@@ -23,11 +23,11 @@ func (s *ReceivePackSuite) SetUpSuite(c *C) {
 
 func (s *ReceivePackSuite) SetUpTest(c *C) {
 	fixture := fixtures.Basic().One()
-	path := fixture.DotGit().Base()
+	path := fixture.DotGit().Root()
 	s.Endpoint = prepareRepo(c, path)
 
 	fixture = fixtures.ByTag("empty").One()
-	path = fixture.DotGit().Base()
+	path = fixture.DotGit().Root()
 	s.EmptyEndpoint = prepareRepo(c, path)
 
 	s.NonExistentEndpoint = prepareRepo(c, "/non-existent")
@@ -70,6 +70,6 @@ func (s *ReceivePackSuite) TestNonExistentCommand(c *C) {
 	cmd := "/non-existent-git"
 	client := NewClient(cmd, cmd)
 	session, err := client.NewReceivePackSession(s.Endpoint, s.EmptyAuth)
-	c.Assert(err, ErrorMatches, ".*no such file or directory.*")
+	c.Assert(err, ErrorMatches, ".*(no such file or directory.*|.*file does not exist)*.")
 	c.Assert(session, IsNil)
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/docker/cli/opts"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/pkg/system"
-	runconfigopts "github.com/docker/docker/runconfig/opts"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/net/context"
@@ -29,7 +28,7 @@ func newConfigCreateCommand(dockerCli command.Cli) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "create [OPTIONS] CONFIG file|-",
-		Short: "Create a configuration file from a file or STDIN as content",
+		Short: "Create a config from a file or STDIN",
 		Args:  cli.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			createOpts.name = args[0]
@@ -65,7 +64,7 @@ func runConfigCreate(dockerCli command.Cli, options createOptions) error {
 	spec := swarm.ConfigSpec{
 		Annotations: swarm.Annotations{
 			Name:   options.name,
-			Labels: runconfigopts.ConvertKVStringsToMap(options.labels.GetAll()),
+			Labels: opts.ConvertKVStringsToMap(options.labels.GetAll()),
 		},
 		Data: configData,
 	}

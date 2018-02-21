@@ -9,8 +9,8 @@ import (
 	"gopkg.in/src-d/go-git.v4/storage/memory"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/src-d/go-billy.v2"
-	"gopkg.in/src-d/go-billy.v2/memfs"
+	"gopkg.in/src-d/go-billy.v4/memfs"
+	"gopkg.in/src-d/go-billy.v4/util"
 )
 
 func (s *WorktreeSuite) TestCommitInvalidOptions(c *C) {
@@ -37,7 +37,7 @@ func (s *WorktreeSuite) TestCommitInitial(c *C) {
 	w, err := r.Worktree()
 	c.Assert(err, IsNil)
 
-	billy.WriteFile(fs, "foo", []byte("foo"), 0644)
+	util.WriteFile(fs, "foo", []byte("foo"), 0644)
 
 	_, err = w.Add("foo")
 	c.Assert(err, IsNil)
@@ -54,14 +54,14 @@ func (s *WorktreeSuite) TestCommitParent(c *C) {
 
 	fs := memfs.New()
 	w := &Worktree{
-		r:  s.Repository,
-		fs: fs,
+		r:          s.Repository,
+		Filesystem: fs,
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
 	c.Assert(err, IsNil)
 
-	billy.WriteFile(fs, "foo", []byte("foo"), 0644)
+	util.WriteFile(fs, "foo", []byte("foo"), 0644)
 
 	_, err = w.Add("foo")
 	c.Assert(err, IsNil)
@@ -78,15 +78,15 @@ func (s *WorktreeSuite) TestCommitAll(c *C) {
 
 	fs := memfs.New()
 	w := &Worktree{
-		r:  s.Repository,
-		fs: fs,
+		r:          s.Repository,
+		Filesystem: fs,
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
 	c.Assert(err, IsNil)
 
-	billy.WriteFile(fs, "LICENSE", []byte("foo"), 0644)
-	billy.WriteFile(fs, "foo", []byte("foo"), 0644)
+	util.WriteFile(fs, "LICENSE", []byte("foo"), 0644)
+	util.WriteFile(fs, "foo", []byte("foo"), 0644)
 
 	hash, err := w.Commit("foo\n", &CommitOptions{
 		All:    true,
@@ -97,6 +97,42 @@ func (s *WorktreeSuite) TestCommitAll(c *C) {
 	c.Assert(err, IsNil)
 
 	assertStorageStatus(c, s.Repository, 13, 11, 10, expected)
+}
+
+func (s *WorktreeSuite) TestRemoveAndCommitAll(c *C) {
+	expected := plumbing.NewHash("907cd576c6ced2ecd3dab34a72bf9cf65944b9a9")
+
+	fs := memfs.New()
+	w := &Worktree{
+		r:          s.Repository,
+		Filesystem: fs,
+	}
+
+	err := w.Checkout(&CheckoutOptions{})
+	c.Assert(err, IsNil)
+
+	util.WriteFile(fs, "foo", []byte("foo"), 0644)
+	_, err = w.Add("foo")
+	c.Assert(err, IsNil)
+
+	_, errFirst := w.Commit("Add in Repo\n", &CommitOptions{
+		Author: defaultSignature(),
+	})
+	c.Assert(errFirst, IsNil)
+
+	errRemove := fs.Remove("foo")
+	c.Assert(errRemove, IsNil)
+
+	hash, errSecond := w.Commit("Remove foo\n", &CommitOptions{
+		All:    true,
+		Author: defaultSignature(),
+	})
+	c.Assert(errSecond, IsNil)
+
+	c.Assert(hash, Equals, expected)
+	c.Assert(err, IsNil)
+
+	assertStorageStatus(c, s.Repository, 13, 11, 11, expected)
 }
 
 func assertStorageStatus(

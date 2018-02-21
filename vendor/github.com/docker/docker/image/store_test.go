@@ -1,10 +1,11 @@
-package image
+package image // import "github.com/docker/docker/image"
 
 import (
+	"runtime"
 	"testing"
 
+	"github.com/docker/docker/internal/testutil"
 	"github.com/docker/docker/layer"
-	"github.com/docker/docker/pkg/testutil"
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
 )
@@ -25,7 +26,9 @@ func TestRestore(t *testing.T) {
 	err = fs.SetMetadata(id2, "parent", []byte(id1))
 	assert.NoError(t, err)
 
-	is, err := NewImageStore(fs, &mockLayerGetReleaser{})
+	mlgrMap := make(map[string]LayerGetReleaser)
+	mlgrMap[runtime.GOOS] = &mockLayerGetReleaser{}
+	is, err := NewImageStore(fs, mlgrMap)
 	assert.NoError(t, err)
 
 	assert.Len(t, is.Map(), 2)
@@ -40,10 +43,10 @@ func TestRestore(t *testing.T) {
 	assert.Equal(t, "abc", img1.Comment)
 	assert.Equal(t, "def", img2.Comment)
 
-	p, err := is.GetParent(ID(id1))
+	_, err = is.GetParent(ID(id1))
 	testutil.ErrorContains(t, err, "failed to read metadata")
 
-	p, err = is.GetParent(ID(id2))
+	p, err := is.GetParent(ID(id2))
 	assert.NoError(t, err)
 	assert.Equal(t, ID(id1), p)
 
@@ -142,10 +145,30 @@ func TestParentReset(t *testing.T) {
 func defaultImageStore(t *testing.T) (Store, func()) {
 	fsBackend, cleanup := defaultFSStoreBackend(t)
 
-	store, err := NewImageStore(fsBackend, &mockLayerGetReleaser{})
+	mlgrMap := make(map[string]LayerGetReleaser)
+	mlgrMap[runtime.GOOS] = &mockLayerGetReleaser{}
+	store, err := NewImageStore(fsBackend, mlgrMap)
 	assert.NoError(t, err)
 
 	return store, cleanup
+}
+
+func TestGetAndSetLastUpdated(t *testing.T) {
+	store, cleanup := defaultImageStore(t)
+	defer cleanup()
+
+	id, err := store.Create([]byte(`{"comment": "abc1", "rootfs": {"type": "layers"}}`))
+	assert.NoError(t, err)
+
+	updated, err := store.GetLastUpdated(id)
+	assert.NoError(t, err)
+	assert.Equal(t, updated.IsZero(), true)
+
+	assert.NoError(t, store.SetLastUpdated(id))
+
+	updated, err = store.GetLastUpdated(id)
+	assert.NoError(t, err)
+	assert.Equal(t, updated.IsZero(), false)
 }
 
 type mockLayerGetReleaser struct{}

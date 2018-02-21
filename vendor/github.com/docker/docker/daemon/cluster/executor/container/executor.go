@@ -1,16 +1,17 @@
-package container
+package container // import "github.com/docker/docker/daemon/cluster/executor/container"
 
 import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	swarmtypes "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/daemon/cluster/controllers/plugin"
+	"github.com/docker/docker/daemon/cluster/convert"
 	executorpkg "github.com/docker/docker/daemon/cluster/executor"
 	clustertypes "github.com/docker/docker/daemon/cluster/provider"
 	networktypes "github.com/docker/libnetwork/types"
@@ -18,19 +19,24 @@ import (
 	"github.com/docker/swarmkit/agent/exec"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/api/naming"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
 
 type executor struct {
-	backend      executorpkg.Backend
-	dependencies exec.DependencyManager
+	backend       executorpkg.Backend
+	pluginBackend plugin.Backend
+	dependencies  exec.DependencyManager
+	mutex         sync.Mutex // This mutex protects the following node field
+	node          *api.NodeDescription
 }
 
 // NewExecutor returns an executor from the docker client.
-func NewExecutor(b executorpkg.Backend) exec.Executor {
+func NewExecutor(b executorpkg.Backend, p plugin.Backend) exec.Executor {
 	return &executor{
-		backend:      b,
-		dependencies: agent.NewDependencyManager(),
+		backend:       b,
+		pluginBackend: p,
+		dependencies:  agent.NewDependencyManager(),
 	}
 }
 
@@ -117,30 +123,50 @@ func (e *executor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 		Resources: &api.Resources{
 			NanoCPUs:    int64(info.NCPU) * 1e9,
 			MemoryBytes: info.MemTotal,
+			Generic:     convert.GenericResourcesToGRPC(info.GenericResources),
 		},
 	}
+
+	// Save the node information in the executor field
+	e.mutex.Lock()
+	e.node = description
+	e.mutex.Unlock()
 
 	return description, nil
 }
 
 func (e *executor) Configure(ctx context.Context, node *api.Node) error {
-	na := node.Attachment
-	if na == nil {
+	var ingressNA *api.NetworkAttachment
+	attachments := make(map[string]string)
+
+	for _, na := range node.Attachments {
+		if na.Network.Spec.Ingress {
+			ingressNA = na
+		}
+		attachments[na.Network.ID] = na.Addresses[0]
+	}
+
+	if (ingressNA == nil) && (node.Attachment != nil) {
+		ingressNA = node.Attachment
+		attachments[ingressNA.Network.ID] = ingressNA.Addresses[0]
+	}
+
+	if ingressNA == nil {
 		e.backend.ReleaseIngress()
-		return nil
+		return e.backend.GetAttachmentStore().ResetAttachments(attachments)
 	}
 
 	options := types.NetworkCreate{
-		Driver: na.Network.DriverState.Name,
+		Driver: ingressNA.Network.DriverState.Name,
 		IPAM: &network.IPAM{
-			Driver: na.Network.IPAM.Driver.Name,
+			Driver: ingressNA.Network.IPAM.Driver.Name,
 		},
-		Options:        na.Network.DriverState.Options,
+		Options:        ingressNA.Network.DriverState.Options,
 		Ingress:        true,
 		CheckDuplicate: true,
 	}
 
-	for _, ic := range na.Network.IPAM.Configs {
+	for _, ic := range ingressNA.Network.IPAM.Configs {
 		c := network.IPAMConfig{
 			Subnet:  ic.Subnet,
 			IPRange: ic.Range,
@@ -150,22 +176,30 @@ func (e *executor) Configure(ctx context.Context, node *api.Node) error {
 	}
 
 	_, err := e.backend.SetupIngress(clustertypes.NetworkCreateRequest{
-		ID: na.Network.ID,
+		ID: ingressNA.Network.ID,
 		NetworkCreateRequest: types.NetworkCreateRequest{
-			Name:          na.Network.Spec.Annotations.Name,
+			Name:          ingressNA.Network.Spec.Annotations.Name,
 			NetworkCreate: options,
 		},
-	}, na.Addresses[0])
+	}, ingressNA.Addresses[0])
+	if err != nil {
+		return err
+	}
 
-	return err
+	return e.backend.GetAttachmentStore().ResetAttachments(attachments)
 }
 
 // Controller returns a docker container runner.
 func (e *executor) Controller(t *api.Task) (exec.Controller, error) {
 	dependencyGetter := agent.Restrict(e.dependencies, t)
 
+	// Get the node description from the executor field
+	e.mutex.Lock()
+	nodeDescription := e.node
+	e.mutex.Unlock()
+
 	if t.Spec.GetAttachment() != nil {
-		return newNetworkAttacherController(e.backend, t, dependencyGetter)
+		return newNetworkAttacherController(e.backend, t, nodeDescription, dependencyGetter)
 	}
 
 	var ctlr exec.Controller
@@ -181,16 +215,20 @@ func (e *executor) Controller(t *api.Task) (exec.Controller, error) {
 		}
 		switch runtimeKind {
 		case string(swarmtypes.RuntimePlugin):
-			c, err := plugin.NewController()
+			info, _ := e.backend.SystemInfo()
+			if !info.ExperimentalBuild {
+				return ctlr, fmt.Errorf("runtime type %q only supported in experimental", swarmtypes.RuntimePlugin)
+			}
+			c, err := plugin.NewController(e.pluginBackend, t)
 			if err != nil {
 				return ctlr, err
 			}
 			ctlr = c
 		default:
-			return ctlr, fmt.Errorf("unsupported runtime type: %q", r.Generic.Kind)
+			return ctlr, fmt.Errorf("unsupported runtime type: %q", runtimeKind)
 		}
 	case *api.TaskSpec_Container:
-		c, err := newController(e.backend, t, dependencyGetter)
+		c, err := newController(e.backend, t, nodeDescription, dependencyGetter)
 		if err != nil {
 			return ctlr, err
 		}

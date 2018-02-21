@@ -1,4 +1,4 @@
-package dockerfile
+package dockerfile // import "github.com/docker/docker/builder/dockerfile"
 
 import (
 	"fmt"
@@ -39,6 +39,26 @@ func newBuildArgs(argsFromOptions map[string]*string) *buildArgs {
 		allowedMetaArgs:  make(map[string]*string),
 		referencedArgs:   make(map[string]struct{}),
 		argsFromOptions:  argsFromOptions,
+	}
+}
+
+func (b *buildArgs) Clone() *buildArgs {
+	result := newBuildArgs(b.argsFromOptions)
+	for k, v := range b.allowedBuildArgs {
+		result.allowedBuildArgs[k] = v
+	}
+	for k, v := range b.allowedMetaArgs {
+		result.allowedMetaArgs[k] = v
+	}
+	for k := range b.referencedArgs {
+		result.referencedArgs[k] = struct{}{}
+	}
+	return result
+}
+
+func (b *buildArgs) MergeReferencedArgs(other *buildArgs) {
+	for k := range other.referencedArgs {
+		b.referencedArgs[k] = struct{}{}
 	}
 }
 

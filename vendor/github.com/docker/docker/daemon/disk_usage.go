@@ -1,4 +1,4 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"fmt"
@@ -6,13 +6,13 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/directory"
 	"github.com/docker/docker/volume"
 	"github.com/opencontainers/go-digest"
+	"github.com/sirupsen/logrus"
 )
 
 func (daemon *Daemon) getLayerRefs() map[layer.ChainID]int {
@@ -65,6 +65,13 @@ func (daemon *Daemon) SystemDiskUsage(ctx context.Context) (*types.DiskUsage, er
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+			if d, ok := v.(volume.DetailedVolume); ok {
+				// skip local volumes with mount options since these could have external
+				// mounted filesystems that will be slow to enumerate.
+				if len(d.Options()) > 0 {
+					return nil
+				}
+			}
 			name := v.Name()
 			refs := daemon.volumes.Refs(v)
 
@@ -87,23 +94,25 @@ func (daemon *Daemon) SystemDiskUsage(ctx context.Context) (*types.DiskUsage, er
 	}
 
 	// Get total layers size on disk
-	layerRefs := daemon.getLayerRefs()
-	allLayers := daemon.layerStore.Map()
 	var allLayersSize int64
-	for _, l := range allLayers {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-			size, err := l.DiffSize()
-			if err == nil {
-				if _, ok := layerRefs[l.ChainID()]; ok {
-					allLayersSize += size
+	layerRefs := daemon.getLayerRefs()
+	for _, ls := range daemon.layerStores {
+		allLayers := ls.Map()
+		for _, l := range allLayers {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+				size, err := l.DiffSize()
+				if err == nil {
+					if _, ok := layerRefs[l.ChainID()]; ok {
+						allLayersSize += size
+					} else {
+						logrus.Warnf("found leaked image layer %v", l.ChainID())
+					}
 				} else {
-					logrus.Warnf("found leaked image layer %v", l.ChainID())
+					logrus.Warnf("failed to get diff size for layer %v", l.ChainID())
 				}
-			} else {
-				logrus.Warnf("failed to get diff size for layer %v", l.ChainID())
 			}
 		}
 	}

@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	sbcli "github.com/paralin/scratchbuild/cli"
 	"github.com/urfave/cli"
 )

@@ -296,7 +296,8 @@
                       "nocopy": {"type": "boolean"}
                     }
                   }
-                }
+                },
+                "additionalProperties": false
               }
             ],
             "uniqueItems": true
@@ -348,7 +349,8 @@
           "properties": {
             "limits": {"$ref": "#/definitions/resource"},
             "reservations": {"$ref": "#/definitions/resource"}
-          }
+          },
+          "additionalProperties": false
         },
         "restart_policy": {
           "type": "object",

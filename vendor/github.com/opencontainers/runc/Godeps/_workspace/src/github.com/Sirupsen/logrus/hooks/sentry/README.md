@@ -13,8 +13,8 @@ Every sentry application defined on the server gets a different
 
 ```go
 import (
-  "github.com/Sirupsen/logrus"
-  "github.com/Sirupsen/logrus/hooks/sentry"
+  "github.com/sirupsen/logrus"
+  "github.com/sirupsen/logrus/hooks/sentry"
 )
 
 func main() {

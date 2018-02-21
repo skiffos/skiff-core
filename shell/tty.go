@@ -36,7 +36,7 @@ func resizeTtyTo(ctx context.Context, client client.ContainerAPIClient, id strin
 }
 
 // MonitorTtySize updates the container tty size when the terminal tty changes size
-func MonitorTtySize(ctx context.Context, client *client.Client, out *OutStream, id string, isExec bool) error {
+func MonitorTtySize(ctx context.Context, client client.APIClient, out *OutStream, id string, isExec bool) error {
 	resizeTty := func() {
 		height, width := out.GetTtySize()
 		resizeTtyTo(ctx, client, id, height, width, isExec)

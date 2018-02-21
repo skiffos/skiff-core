@@ -1,4 +1,4 @@
-package plugin
+package plugin // import "github.com/docker/docker/api/server/router/plugin"
 
 import (
 	"encoding/base64"
@@ -290,7 +290,7 @@ func (pr *pluginRouter) listPlugins(ctx context.Context, w http.ResponseWriter, 
 		return err
 	}
 
-	pluginFilters, err := filters.FromParam(r.Form.Get("filters"))
+	pluginFilters, err := filters.FromJSON(r.Form.Get("filters"))
 	if err != nil {
 		return err
 	}

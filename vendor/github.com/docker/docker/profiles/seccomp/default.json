@@ -55,7 +55,7 @@
 				"accept",
 				"accept4",
 				"access",
-				"alarm",
+				"adjtimex",
 				"alarm",
 				"bind",
 				"brk",
@@ -556,6 +556,7 @@
 				"mount",
 				"name_to_handle_at",
 				"perf_event_open",
+				"quotactl",
 				"setdomainname",
 				"sethostname",
 				"setns",
@@ -719,7 +720,6 @@
 			"names": [
 				"settimeofday",
 				"stime",
-				"adjtimex",
 				"clock_settime"
 			],
 			"action": "SCMP_ACT_ALLOW",

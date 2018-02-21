@@ -1,9 +1,9 @@
-package streamformatter
+package streamformatter // import "github.com/docker/docker/pkg/streamformatter"
 
 import (
+	"bytes"
 	"testing"
 
-	"bytes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

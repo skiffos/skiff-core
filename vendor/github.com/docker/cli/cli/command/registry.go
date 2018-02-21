@@ -10,14 +10,13 @@ import (
 	"runtime"
 	"strings"
 
-	"golang.org/x/net/context"
-
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/pkg/term"
 	"github.com/docker/docker/registry"
 	"github.com/pkg/errors"
+	"golang.org/x/net/context"
 )
 
 // ElectAuthServer returns the default registry to use (by asking the daemon)
@@ -70,7 +69,7 @@ func ResolveAuthConfig(ctx context.Context, cli Cli, index *registrytypes.IndexI
 		configKey = ElectAuthServer(ctx, cli)
 	}
 
-	a, _ := cli.CredentialsStore(configKey).Get(configKey)
+	a, _ := cli.ConfigFile().GetAuthConfig(configKey)
 	return a
 }
 
@@ -85,7 +84,7 @@ func ConfigureAuth(cli Cli, flUser, flPassword, serverAddress string, isDefaultR
 		serverAddress = registry.ConvertToHostname(serverAddress)
 	}
 
-	authconfig, err := cli.CredentialsStore(serverAddress).Get(serverAddress)
+	authconfig, err := cli.ConfigFile().GetAuthConfig(serverAddress)
 	if err != nil {
 		return authconfig, err
 	}

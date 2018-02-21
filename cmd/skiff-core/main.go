@@ -4,7 +4,7 @@ import (
 	"io/ioutil"
 	"os"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/paralin/skiff-core/config"
 	"github.com/urfave/cli"
 	"gopkg.in/yaml.v2"

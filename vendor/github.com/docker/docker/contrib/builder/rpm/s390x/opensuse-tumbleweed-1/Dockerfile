@@ -7,14 +7,14 @@ FROM opensuse/s390x:tumbleweed
 
 RUN zypper ar https://download.opensuse.org/ports/zsystems/tumbleweed/repo/oss/ tumbleweed
 RUN zypper --non-interactive install ca-certificates* curl gzip rpm-build
-RUN zypper --non-interactive install libbtrfs-devel device-mapper-devel glibc-static  libselinux-devel libtool-ltdl-devel pkg-config selinux-policy selinux-policy-devel sqlite-devel systemd-devel tar git cmake vim systemd-rpm-macros
+RUN zypper --non-interactive install libbtrfs-devel device-mapper-devel glibc-static  libselinux-devel pkg-config selinux-policy selinux-policy-devel sqlite-devel systemd-devel tar git cmake vim systemd-rpm-macros
 
-ENV GO_VERSION 1.8.1
+ENV GO_VERSION 1.9.4
 RUN curl -fsSL "https://golang.org/dl/go${GO_VERSION}.linux-s390x.tar.gz" | tar xzC /usr/local
 ENV PATH $PATH:/usr/local/go/bin
 
 ENV AUTO_GOPATH 1
 
-ENV DOCKER_BUILDTAGS pkcs11 selinux
+ENV DOCKER_BUILDTAGS selinux
 ENV RUNC_BUILDTAGS selinux
 RUN ln -s /usr/bin/gcc /usr/bin/s390x-linux-gnu-gcc

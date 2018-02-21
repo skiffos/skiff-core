@@ -1,4 +1,4 @@
-package remotecontext
+package remotecontext // import "github.com/docker/docker/builder/remotecontext"
 
 import (
 	"bytes"
@@ -10,8 +10,10 @@ import (
 	"testing"
 
 	"github.com/docker/docker/builder"
-	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/httputils"
+	"github.com/docker/docker/internal/testutil"
+	"github.com/gotestyourself/gotestyourself/fs"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var binaryContext = []byte{0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00} //xz magic
@@ -172,11 +174,10 @@ func TestUnknownContentLength(t *testing.T) {
 	}
 }
 
-func TestMakeRemoteContext(t *testing.T) {
-	contextDir, cleanup := createTestTempDir(t, "", "builder-tarsum-test")
-	defer cleanup()
-
-	createTestTempFile(t, contextDir, builder.DefaultDockerfileName, dockerfileContents, 0777)
+func TestDownloadRemote(t *testing.T) {
+	contextDir := fs.NewDir(t, "test-builder-download-remote",
+		fs.WithFile(builder.DefaultDockerfileName, dockerfileContents))
+	defer contextDir.Remove()
 
 	mux := http.NewServeMux()
 	server := httptest.NewServer(mux)
@@ -185,50 +186,58 @@ func TestMakeRemoteContext(t *testing.T) {
 	serverURL.Path = "/" + builder.DefaultDockerfileName
 	remoteURL := serverURL.String()
 
-	mux.Handle("/", http.FileServer(http.Dir(contextDir)))
+	mux.Handle("/", http.FileServer(http.Dir(contextDir.Path())))
 
-	remoteContext, err := MakeRemoteContext(remoteURL, map[string]func(io.ReadCloser) (io.ReadCloser, error){
-		httputils.MimeTypes.TextPlain: func(rc io.ReadCloser) (io.ReadCloser, error) {
-			dockerfile, err := ioutil.ReadAll(rc)
-			if err != nil {
-				return nil, err
-			}
+	contentType, content, err := downloadRemote(remoteURL)
+	require.NoError(t, err)
 
-			r, err := archive.Generate(builder.DefaultDockerfileName, string(dockerfile))
-			if err != nil {
-				return nil, err
-			}
-			return ioutil.NopCloser(r), nil
+	assert.Equal(t, mimeTypes.TextPlain, contentType)
+	raw, err := ioutil.ReadAll(content)
+	require.NoError(t, err)
+	assert.Equal(t, dockerfileContents, string(raw))
+}
+
+func TestGetWithStatusError(t *testing.T) {
+	var testcases = []struct {
+		err          error
+		statusCode   int
+		expectedErr  string
+		expectedBody string
+	}{
+		{
+			statusCode:   200,
+			expectedBody: "THE BODY",
 		},
-	})
-
-	if err != nil {
-		t.Fatalf("Error when executing DetectContextFromRemoteURL: %s", err)
+		{
+			statusCode:   400,
+			expectedErr:  "with status 400 Bad Request: broke",
+			expectedBody: "broke",
+		},
 	}
+	for _, testcase := range testcases {
+		ts := httptest.NewServer(
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				buffer := bytes.NewBufferString(testcase.expectedBody)
+				w.WriteHeader(testcase.statusCode)
+				w.Write(buffer.Bytes())
+			}),
+		)
+		defer ts.Close()
+		response, err := GetWithStatusError(ts.URL)
 
-	if remoteContext == nil {
-		t.Fatal("Remote context should not be nil")
+		if testcase.expectedErr == "" {
+			require.NoError(t, err)
+
+			body, err := readBody(response.Body)
+			require.NoError(t, err)
+			assert.Contains(t, string(body), testcase.expectedBody)
+		} else {
+			testutil.ErrorContains(t, err, testcase.expectedErr)
+		}
 	}
+}
 
-	tarSumCtx, ok := remoteContext.(*tarSumContext)
-
-	if !ok {
-		t.Fatal("Cast error, remote context should be casted to tarSumContext")
-	}
-
-	fileInfoSums := tarSumCtx.sums
-
-	if fileInfoSums.Len() != 1 {
-		t.Fatalf("Size of file info sums should be 1, got: %d", fileInfoSums.Len())
-	}
-
-	fileInfo := fileInfoSums.GetFile(builder.DefaultDockerfileName)
-
-	if fileInfo == nil {
-		t.Fatalf("There should be file named %s in fileInfoSums", builder.DefaultDockerfileName)
-	}
-
-	if fileInfo.Pos() != 0 {
-		t.Fatalf("File %s should have position 0, got %d", builder.DefaultDockerfileName, fileInfo.Pos())
-	}
+func readBody(b io.ReadCloser) ([]byte, error) {
+	defer b.Close()
+	return ioutil.ReadAll(b)
 }

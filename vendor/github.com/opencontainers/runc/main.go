@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/codegangsta/cli"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )

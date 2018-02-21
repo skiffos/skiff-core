@@ -1,4 +1,4 @@
-package remotecontext
+package remotecontext // import "github.com/docker/docker/builder/remotecontext"
 
 import (
 	"io/ioutil"
@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/reexec"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -22,24 +23,22 @@ func init() {
 
 func TestCloseRootDirectory(t *testing.T) {
 	contextDir, err := ioutil.TempDir("", "builder-tarsum-test")
-
+	defer os.RemoveAll(contextDir)
 	if err != nil {
 		t.Fatalf("Error with creating temporary directory: %s", err)
 	}
 
-	tarsum := &tarSumContext{root: contextDir}
-
-	err = tarsum.Close()
+	src := makeTestArchiveContext(t, contextDir)
+	err = src.Close()
 
 	if err != nil {
 		t.Fatalf("Error while executing Close: %s", err)
 	}
 
-	_, err = os.Stat(contextDir)
+	_, err = os.Stat(src.Root().Path())
 
 	if !os.IsNotExist(err) {
 		t.Fatal("Directory should not exist at this point")
-		defer os.RemoveAll(contextDir)
 	}
 }
 
@@ -49,7 +48,7 @@ func TestHashFile(t *testing.T) {
 
 	createTestTempFile(t, contextDir, filename, contents, 0755)
 
-	tarSum := makeTestTarsumContext(t, contextDir)
+	tarSum := makeTestArchiveContext(t, contextDir)
 
 	sum, err := tarSum.Hash(filename)
 
@@ -80,7 +79,7 @@ func TestHashSubdir(t *testing.T) {
 
 	testFilename := createTestTempFile(t, contextSubdir, filename, contents, 0755)
 
-	tarSum := makeTestTarsumContext(t, contextDir)
+	tarSum := makeTestArchiveContext(t, contextDir)
 
 	relativePath, err := filepath.Rel(contextDir, testFilename)
 
@@ -105,19 +104,6 @@ func TestHashSubdir(t *testing.T) {
 	}
 }
 
-func TestStatNotExisting(t *testing.T) {
-	contextDir, cleanup := createTestTempDir(t, "", "builder-tarsum-test")
-	defer cleanup()
-
-	tarSum := &tarSumContext{root: contextDir}
-
-	_, err := tarSum.Hash("not-existing")
-
-	if !os.IsNotExist(err) {
-		t.Fatalf("This file should not exist: %s", err)
-	}
-}
-
 func TestRemoveDirectory(t *testing.T) {
 	contextDir, cleanup := createTestTempDir(t, "", "builder-tarsum-test")
 	defer cleanup()
@@ -130,30 +116,34 @@ func TestRemoveDirectory(t *testing.T) {
 		t.Fatalf("Error when getting relative path: %s", err)
 	}
 
-	tarSum := &tarSumContext{root: contextDir}
+	src := makeTestArchiveContext(t, contextDir)
 
+	_, err = src.Root().Stat(src.Root().Join(src.Root().Path(), relativePath))
+	if err != nil {
+		t.Fatalf("Statting %s shouldn't fail: %+v", relativePath, err)
+	}
+
+	tarSum := src.(modifiableContext)
 	err = tarSum.Remove(relativePath)
-
 	if err != nil {
 		t.Fatalf("Error when executing Remove: %s", err)
 	}
 
-	_, err = os.Stat(contextSubdir)
-
-	if !os.IsNotExist(err) {
-		t.Fatal("Directory should not exist at this point")
+	_, err = src.Root().Stat(src.Root().Join(src.Root().Path(), relativePath))
+	if !os.IsNotExist(errors.Cause(err)) {
+		t.Fatalf("Directory should not exist at this point: %+v ", err)
 	}
 }
 
-func makeTestTarsumContext(t *testing.T, dir string) builder.Source {
+func makeTestArchiveContext(t *testing.T, dir string) builder.Source {
 	tarStream, err := archive.Tar(dir, archive.Uncompressed)
 	if err != nil {
 		t.Fatalf("error: %s", err)
 	}
 	defer tarStream.Close()
-	tarSum, err := MakeTarSumContext(tarStream)
+	tarSum, err := FromArchive(tarStream)
 	if err != nil {
-		t.Fatalf("Error when executing MakeTarSumContext: %s", err)
+		t.Fatalf("Error when executing FromArchive: %s", err)
 	}
 	return tarSum
 }

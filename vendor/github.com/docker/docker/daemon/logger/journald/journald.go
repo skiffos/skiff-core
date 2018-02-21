@@ -2,17 +2,17 @@
 
 // Package journald provides the log driver for forwarding server logs
 // to endpoints that receive the systemd format.
-package journald
+package journald // import "github.com/docker/docker/daemon/logger/journald"
 
 import (
 	"fmt"
 	"sync"
 	"unicode"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/coreos/go-systemd/journal"
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/logger/loggerutils"
+	"github.com/sirupsen/logrus"
 )
 
 const name = "journald"
@@ -75,6 +75,7 @@ func New(info logger.Info) (logger.Logger, error) {
 		"CONTAINER_ID_FULL": info.ContainerID,
 		"CONTAINER_NAME":    info.Name(),
 		"CONTAINER_TAG":     tag,
+		"SYSLOG_IDENTIFIER": tag,
 	}
 	extraAttrs, err := info.ExtraAttributes(sanitizeKeyMod)
 	if err != nil {
@@ -112,9 +113,10 @@ func (s *journald) Log(msg *logger.Message) error {
 	}
 
 	line := string(msg.Line)
+	source := msg.Source
 	logger.PutMessage(msg)
 
-	if msg.Source == "stderr" {
+	if source == "stderr" {
 		return journal.Send(line, journal.PriErr, vars)
 	}
 	return journal.Send(line, journal.PriInfo, vars)

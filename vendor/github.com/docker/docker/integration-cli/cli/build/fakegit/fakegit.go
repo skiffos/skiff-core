@@ -1,4 +1,4 @@
-package fakegit
+package fakegit // import "github.com/docker/docker/integration-cli/cli/build/fakegit"
 
 import (
 	"fmt"
@@ -11,9 +11,11 @@ import (
 
 	"github.com/docker/docker/integration-cli/cli/build/fakecontext"
 	"github.com/docker/docker/integration-cli/cli/build/fakestorage"
+	"github.com/stretchr/testify/require"
 )
 
 type testingT interface {
+	require.TestingT
 	logT
 	Fatal(args ...interface{})
 	Fatalf(string, ...interface{})

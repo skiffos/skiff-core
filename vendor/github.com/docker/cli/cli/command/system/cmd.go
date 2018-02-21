@@ -7,8 +7,7 @@ import (
 )
 
 // NewSystemCommand returns a cobra command for `system` subcommands
-// nolint: interfacer
-func NewSystemCommand(dockerCli *command.DockerCli) *cobra.Command {
+func NewSystemCommand(dockerCli command.Cli) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "system",
 		Short: "Manage Docker",
@@ -18,8 +17,8 @@ func NewSystemCommand(dockerCli *command.DockerCli) *cobra.Command {
 	cmd.AddCommand(
 		NewEventsCommand(dockerCli),
 		NewInfoCommand(dockerCli),
-		NewDiskUsageCommand(dockerCli),
-		NewPruneCommand(dockerCli),
+		newDiskUsageCommand(dockerCli),
+		newPruneCommand(dockerCli),
 	)
 
 	return cmd

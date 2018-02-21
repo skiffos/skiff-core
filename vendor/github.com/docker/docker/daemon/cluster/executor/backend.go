@@ -1,4 +1,4 @@
-package executor
+package executor // import "github.com/docker/docker/daemon/cluster/executor"
 
 import (
 	"io"
@@ -15,6 +15,7 @@ import (
 	swarmtypes "github.com/docker/docker/api/types/swarm"
 	containerpkg "github.com/docker/docker/container"
 	clustertypes "github.com/docker/docker/daemon/cluster/provider"
+	networkSettings "github.com/docker/docker/daemon/network"
 	"github.com/docker/docker/plugin"
 	"github.com/docker/libnetwork"
 	"github.com/docker/libnetwork/cluster"
@@ -26,15 +27,15 @@ import (
 // Backend defines the executor component for a swarm agent.
 type Backend interface {
 	CreateManagedNetwork(clustertypes.NetworkCreateRequest) error
-	DeleteManagedNetwork(name string) error
+	DeleteManagedNetwork(networkID string) error
 	FindNetwork(idName string) (libnetwork.Network, error)
 	SetupIngress(clustertypes.NetworkCreateRequest, string) (<-chan struct{}, error)
 	ReleaseIngress() (<-chan struct{}, error)
-	PullImage(ctx context.Context, image, tag string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) error
+	PullImage(ctx context.Context, image, tag, platform string, metaHeaders map[string][]string, authConfig *types.AuthConfig, outStream io.Writer) error
 	CreateManagedContainer(config types.ContainerCreateConfig) (container.ContainerCreateCreatedBody, error)
 	ContainerStart(name string, hostConfig *container.HostConfig, checkpoint string, checkpointDir string) error
 	ContainerStop(name string, seconds *int) error
-	ContainerLogs(context.Context, string, *types.ContainerLogsOptions) (<-chan *backend.LogMessage, error)
+	ContainerLogs(context.Context, string, *types.ContainerLogsOptions) (msgs <-chan *backend.LogMessage, tty bool, err error)
 	ConnectContainerToNetwork(containerName, networkName string, endpointConfig *network.EndpointSettings) error
 	ActivateContainerServiceBinding(containerName string) error
 	DeactivateContainerServiceBinding(containerName string) error
@@ -61,4 +62,5 @@ type Backend interface {
 	LookupImage(name string) (*types.ImageInspect, error)
 	PluginManager() *plugin.Manager
 	PluginGetter() *plugin.Store
+	GetAttachmentStore() *networkSettings.AttachmentStore
 }

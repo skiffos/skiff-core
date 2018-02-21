@@ -5,14 +5,15 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/src-d/go-git-fixtures"
 	"gopkg.in/src-d/go-git.v4/plumbing"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/src-d/go-billy.v2/osfs"
+	"gopkg.in/src-d/go-billy.v4/osfs"
+	"gopkg.in/src-d/go-git-fixtures.v3"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -55,24 +56,25 @@ func (s *SuiteDotGit) TestSetRefs(c *C) {
 	fs := osfs.New(tmp)
 	dir := New(fs)
 
-	err = dir.SetRef(plumbing.NewReferenceFromStrings(
+	firstFoo := plumbing.NewReferenceFromStrings(
 		"refs/heads/foo",
 		"e8d3ffab552895c19b9fcf7aa264d277cde33881",
-	))
+	)
+	err = dir.SetRef(firstFoo, nil)
 
 	c.Assert(err, IsNil)
 
 	err = dir.SetRef(plumbing.NewReferenceFromStrings(
 		"refs/heads/symbolic",
 		"ref: refs/heads/foo",
-	))
+	), nil)
 
 	c.Assert(err, IsNil)
 
 	err = dir.SetRef(plumbing.NewReferenceFromStrings(
 		"bar",
 		"e8d3ffab552895c19b9fcf7aa264d277cde33881",
-	))
+	), nil)
 	c.Assert(err, IsNil)
 
 	refs, err := dir.Refs()
@@ -105,6 +107,20 @@ func (s *SuiteDotGit) TestSetRefs(c *C) {
 	c.Assert(ref, NotNil)
 	c.Assert(ref.Hash().String(), Equals, "e8d3ffab552895c19b9fcf7aa264d277cde33881")
 
+	// Check that SetRef with a non-nil `old` works.
+	err = dir.SetRef(plumbing.NewReferenceFromStrings(
+		"refs/heads/foo",
+		"6ecf0ef2c2dffb796033e5a02219af86ec6584e5",
+	), firstFoo)
+	c.Assert(err, IsNil)
+
+	// `firstFoo` is no longer the right `old` reference, so this
+	// should fail.
+	err = dir.SetRef(plumbing.NewReferenceFromStrings(
+		"refs/heads/foo",
+		"6ecf0ef2c2dffb796033e5a02219af86ec6584e5",
+	), firstFoo)
+	c.Assert(err, NotNil)
 }
 
 func (s *SuiteDotGit) TestRefsFromPackedRefs(c *C) {
@@ -134,6 +150,24 @@ func (s *SuiteDotGit) TestRefsFromReferenceFile(c *C) {
 
 }
 
+func BenchmarkRefMultipleTimes(b *testing.B) {
+	fs := fixtures.Basic().ByTag(".git").One().DotGit()
+	refname := plumbing.ReferenceName("refs/remotes/origin/branch")
+
+	dir := New(fs)
+	_, err := dir.Ref(refname)
+	if err != nil {
+		b.Fatalf("unexpected error: %s", err)
+	}
+
+	for i := 0; i < b.N; i++ {
+		_, err := dir.Ref(refname)
+		if err != nil {
+			b.Fatalf("unexpected error: %s", err)
+		}
+	}
+}
+
 func (s *SuiteDotGit) TestRemoveRefFromReferenceFile(c *C) {
 	fs := fixtures.Basic().ByTag(".git").One().DotGit()
 	dir := New(fs)
@@ -157,7 +191,7 @@ func (s *SuiteDotGit) TestRemoveRefFromPackedRefs(c *C) {
 	err := dir.RemoveRef(name)
 	c.Assert(err, IsNil)
 
-	b, err := ioutil.ReadFile(filepath.Join(fs.Base(), packedRefsPath))
+	b, err := ioutil.ReadFile(filepath.Join(fs.Root(), packedRefsPath))
 	c.Assert(err, IsNil)
 
 	c.Assert(string(b), Equals, ""+
@@ -166,11 +200,51 @@ func (s *SuiteDotGit) TestRemoveRefFromPackedRefs(c *C) {
 		"e8d3ffab552895c19b9fcf7aa264d277cde33881 refs/remotes/origin/branch\n")
 }
 
+func (s *SuiteDotGit) TestRemoveRefFromReferenceFileAndPackedRefs(c *C) {
+	fs := fixtures.Basic().ByTag(".git").One().DotGit()
+	dir := New(fs)
+
+	// Make a ref file for a ref that's already in `packed-refs`.
+	err := dir.SetRef(plumbing.NewReferenceFromStrings(
+		"refs/remotes/origin/branch",
+		"e8d3ffab552895c19b9fcf7aa264d277cde33881",
+	), nil)
+
+	// Make sure it only appears once in the refs list.
+	refs, err := dir.Refs()
+	c.Assert(err, IsNil)
+	found := false
+	for _, ref := range refs {
+		if ref.Name() == "refs/remotes/origin/branch" {
+			c.Assert(found, Equals, false)
+			found = true
+		}
+	}
+
+	name := plumbing.ReferenceName("refs/remotes/origin/branch")
+	err = dir.RemoveRef(name)
+	c.Assert(err, IsNil)
+
+	b, err := ioutil.ReadFile(filepath.Join(fs.Root(), packedRefsPath))
+	c.Assert(err, IsNil)
+
+	c.Assert(string(b), Equals, ""+
+		"# pack-refs with: peeled fully-peeled \n"+
+		"6ecf0ef2c2dffb796033e5a02219af86ec6584e5 refs/heads/master\n"+
+		"6ecf0ef2c2dffb796033e5a02219af86ec6584e5 refs/remotes/origin/master\n")
+
+	refs, err = dir.Refs()
+	c.Assert(err, IsNil)
+
+	ref := findReference(refs, string(name))
+	c.Assert(ref, IsNil)
+}
+
 func (s *SuiteDotGit) TestRemoveRefNonExistent(c *C) {
 	fs := fixtures.Basic().ByTag(".git").One().DotGit()
 	dir := New(fs)
 
-	packedRefs := filepath.Join(fs.Base(), packedRefsPath)
+	packedRefs := filepath.Join(fs.Root(), packedRefsPath)
 	before, err := ioutil.ReadFile(packedRefs)
 	c.Assert(err, IsNil)
 
@@ -188,7 +262,7 @@ func (s *SuiteDotGit) TestRemoveRefInvalidPackedRefs(c *C) {
 	fs := fixtures.Basic().ByTag(".git").One().DotGit()
 	dir := New(fs)
 
-	packedRefs := filepath.Join(fs.Base(), packedRefsPath)
+	packedRefs := filepath.Join(fs.Root(), packedRefsPath)
 	brokenContent := "BROKEN STUFF REALLY BROKEN"
 
 	err := ioutil.WriteFile(packedRefs, []byte(brokenContent), os.FileMode(0755))
@@ -198,7 +272,7 @@ func (s *SuiteDotGit) TestRemoveRefInvalidPackedRefs(c *C) {
 	err = dir.RemoveRef(name)
 	c.Assert(err, NotNil)
 
-	after, err := ioutil.ReadFile(filepath.Join(fs.Base(), packedRefsPath))
+	after, err := ioutil.ReadFile(filepath.Join(fs.Root(), packedRefsPath))
 	c.Assert(err, IsNil)
 
 	c.Assert(brokenContent, Equals, string(after))
@@ -208,7 +282,7 @@ func (s *SuiteDotGit) TestRemoveRefInvalidPackedRefs2(c *C) {
 	fs := fixtures.Basic().ByTag(".git").One().DotGit()
 	dir := New(fs)
 
-	packedRefs := filepath.Join(fs.Base(), packedRefsPath)
+	packedRefs := filepath.Join(fs.Root(), packedRefsPath)
 	brokenContent := strings.Repeat("a", bufio.MaxScanTokenSize*2)
 
 	err := ioutil.WriteFile(packedRefs, []byte(brokenContent), os.FileMode(0755))
@@ -218,7 +292,7 @@ func (s *SuiteDotGit) TestRemoveRefInvalidPackedRefs2(c *C) {
 	err = dir.RemoveRef(name)
 	c.Assert(err, NotNil)
 
-	after, err := ioutil.ReadFile(filepath.Join(fs.Base(), packedRefsPath))
+	after, err := ioutil.ReadFile(filepath.Join(fs.Root(), packedRefsPath))
 	c.Assert(err, IsNil)
 
 	c.Assert(brokenContent, Equals, string(after))
@@ -243,7 +317,7 @@ func (s *SuiteDotGit) TestConfig(c *C) {
 
 	file, err := dir.Config()
 	c.Assert(err, IsNil)
-	c.Assert(filepath.Base(file.Filename()), Equals, "config")
+	c.Assert(filepath.Base(file.Name()), Equals, "config")
 }
 
 func (s *SuiteDotGit) TestConfigWriteAndConfig(c *C) {
@@ -362,7 +436,7 @@ func (s *SuiteDotGit) TestObjectPack(c *C) {
 
 	pack, err := dir.ObjectPack(f.PackfileHash)
 	c.Assert(err, IsNil)
-	c.Assert(filepath.Ext(pack.Filename()), Equals, ".pack")
+	c.Assert(filepath.Ext(pack.Name()), Equals, ".pack")
 }
 
 func (s *SuiteDotGit) TestObjectPackIdx(c *C) {
@@ -372,7 +446,8 @@ func (s *SuiteDotGit) TestObjectPackIdx(c *C) {
 
 	idx, err := dir.ObjectPackIdx(f.PackfileHash)
 	c.Assert(err, IsNil)
-	c.Assert(filepath.Ext(idx.Filename()), Equals, ".idx")
+	c.Assert(filepath.Ext(idx.Name()), Equals, ".idx")
+	c.Assert(idx.Close(), IsNil)
 }
 
 func (s *SuiteDotGit) TestObjectPackNotFound(c *C) {
@@ -399,6 +474,7 @@ func (s *SuiteDotGit) TestNewObject(c *C) {
 	c.Assert(err, IsNil)
 
 	err = w.WriteHeader(plumbing.BlobObject, 14)
+	c.Assert(err, IsNil)
 	n, err := w.Write([]byte("this is a test"))
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 14)
@@ -445,7 +521,7 @@ func (s *SuiteDotGit) TestObject(c *C) {
 	file, err := dir.Object(hash)
 	c.Assert(err, IsNil)
 	c.Assert(strings.HasSuffix(
-		file.Filename(), "objects/03/db8e1fbe133a480f2867aac478fd866686d69e"),
+		file.Name(), fs.Join("objects", "03", "db8e1fbe133a480f2867aac478fd866686d69e")),
 		Equals, true,
 	)
 }
@@ -464,6 +540,131 @@ func (s *SuiteDotGit) TestSubmodules(c *C) {
 	fs := fixtures.ByTag("submodule").One().DotGit()
 	dir := New(fs)
 
-	m := dir.Module("basic")
-	c.Assert(strings.HasSuffix(m.Base(), ".git/module/basic"), Equals, true)
+	m, err := dir.Module("basic")
+	c.Assert(err, IsNil)
+	c.Assert(strings.HasSuffix(m.Root(), m.Join(".git", "modules", "basic")), Equals, true)
+}
+
+func (s *SuiteDotGit) TestPackRefs(c *C) {
+	tmp, err := ioutil.TempDir("", "dot-git")
+	c.Assert(err, IsNil)
+	defer os.RemoveAll(tmp)
+
+	fs := osfs.New(tmp)
+	dir := New(fs)
+
+	err = dir.SetRef(plumbing.NewReferenceFromStrings(
+		"refs/heads/foo",
+		"e8d3ffab552895c19b9fcf7aa264d277cde33881",
+	), nil)
+	c.Assert(err, IsNil)
+	err = dir.SetRef(plumbing.NewReferenceFromStrings(
+		"refs/heads/bar",
+		"a8d3ffab552895c19b9fcf7aa264d277cde33881",
+	), nil)
+	c.Assert(err, IsNil)
+
+	refs, err := dir.Refs()
+	c.Assert(err, IsNil)
+	c.Assert(refs, HasLen, 2)
+	looseCount, err := dir.CountLooseRefs()
+	c.Assert(err, IsNil)
+	c.Assert(looseCount, Equals, 2)
+
+	err = dir.PackRefs()
+	c.Assert(err, IsNil)
+
+	// Make sure the refs are still there, but no longer loose.
+	refs, err = dir.Refs()
+	c.Assert(err, IsNil)
+	c.Assert(refs, HasLen, 2)
+	looseCount, err = dir.CountLooseRefs()
+	c.Assert(err, IsNil)
+	c.Assert(looseCount, Equals, 0)
+
+	ref, err := dir.Ref("refs/heads/foo")
+	c.Assert(err, IsNil)
+	c.Assert(ref, NotNil)
+	c.Assert(ref.Hash().String(), Equals, "e8d3ffab552895c19b9fcf7aa264d277cde33881")
+	ref, err = dir.Ref("refs/heads/bar")
+	c.Assert(err, IsNil)
+	c.Assert(ref, NotNil)
+	c.Assert(ref.Hash().String(), Equals, "a8d3ffab552895c19b9fcf7aa264d277cde33881")
+
+	// Now update one of them, re-pack, and check again.
+	err = dir.SetRef(plumbing.NewReferenceFromStrings(
+		"refs/heads/foo",
+		"b8d3ffab552895c19b9fcf7aa264d277cde33881",
+	), nil)
+	c.Assert(err, IsNil)
+	looseCount, err = dir.CountLooseRefs()
+	c.Assert(err, IsNil)
+	c.Assert(looseCount, Equals, 1)
+	err = dir.PackRefs()
+	c.Assert(err, IsNil)
+
+	// Make sure the refs are still there, but no longer loose.
+	refs, err = dir.Refs()
+	c.Assert(err, IsNil)
+	c.Assert(refs, HasLen, 2)
+	looseCount, err = dir.CountLooseRefs()
+	c.Assert(err, IsNil)
+	c.Assert(looseCount, Equals, 0)
+
+	ref, err = dir.Ref("refs/heads/foo")
+	c.Assert(err, IsNil)
+	c.Assert(ref, NotNil)
+	c.Assert(ref.Hash().String(), Equals, "b8d3ffab552895c19b9fcf7aa264d277cde33881")
+}
+
+func (s *SuiteDotGit) TestAlternates(c *C) {
+	tmp, err := ioutil.TempDir("", "dot-git")
+	c.Assert(err, IsNil)
+	defer os.RemoveAll(tmp)
+
+	// Create a new billy fs.
+	fs := osfs.New(tmp)
+
+	// Create a new dotgit object and initialize.
+	dir := New(fs)
+	err = dir.Initialize()
+	c.Assert(err, IsNil)
+
+	// Create alternates file.
+	altpath := filepath.Join("objects", "info", "alternates")
+	f, err := fs.Create(altpath)
+	c.Assert(err, IsNil)
+
+	// Multiple alternates.
+	var strContent string
+	if runtime.GOOS == "windows" {
+		strContent = "C:\\Users\\username\\repo1\\.git\\objects\r\n..\\..\\..\\rep2\\.git\\objects"
+	} else {
+		strContent = "/Users/username/rep1//.git/objects\n../../../rep2//.git/objects"
+	}
+	content := []byte(strContent)
+	f.Write(content)
+	f.Close()
+
+	dotgits, err := dir.Alternates()
+	c.Assert(err, IsNil)
+	if runtime.GOOS == "windows" {
+		c.Assert(dotgits[0].fs.Root(), Equals, "C:\\Users\\username\\repo1\\.git")
+	} else {
+		c.Assert(dotgits[0].fs.Root(), Equals, "/Users/username/rep1/.git")
+	}
+
+	// For relative path:
+	// /some/absolute/path/to/dot-git -> /some/absolute/path
+	pathx := strings.Split(tmp, string(filepath.Separator))
+	pathx = pathx[:len(pathx)-2]
+	// Use string.Join() to avoid malformed absolutepath on windows
+	// C:Users\\User\\... instead of C:\\Users\\appveyor\\... .
+	resolvedPath := strings.Join(pathx, string(filepath.Separator))
+	// Append the alternate path to the resolvedPath
+	expectedPath := filepath.Join(string(filepath.Separator), resolvedPath, "rep2", ".git")
+	if runtime.GOOS == "windows" {
+		expectedPath = filepath.Join(resolvedPath, "rep2", ".git")
+	}
+	c.Assert(dotgits[1].fs.Root(), Equals, expectedPath)
 }

@@ -1,4 +1,4 @@
-package parser
+package parser // import "github.com/docker/docker/builder/dockerfile/parser"
 
 import (
 	"testing"
@@ -63,4 +63,12 @@ func TestNodeFromLabels(t *testing.T) {
 	node := NodeFromLabels(labels)
 	assert.Equal(t, expected, node)
 
+}
+
+func TestParseNameValWithoutVal(t *testing.T) {
+	directive := Directive{}
+	// In Config.Env, a variable without `=` is removed from the environment. (#31634)
+	// However, in Dockerfile, we don't allow "unsetting" an environment variable. (#11922)
+	_, err := parseNameVal("foo", "ENV", &directive)
+	assert.Error(t, err, "ENV must have two arguments")
 }

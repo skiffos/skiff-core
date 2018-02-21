@@ -1,4 +1,4 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
@@ -18,6 +17,7 @@ import (
 	"github.com/docker/docker/volume"
 	"github.com/docker/libnetwork"
 	digest "github.com/opencontainers/go-digest"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
 
@@ -72,8 +72,8 @@ func (daemon *Daemon) ContainersPrune(ctx context.Context, pruneFilters filters.
 	for _, c := range allContainers {
 		select {
 		case <-ctx.Done():
-			logrus.Warnf("ContainersPrune operation cancelled: %#v", *rep)
-			return rep, ctx.Err()
+			logrus.Debugf("ContainersPrune operation cancelled: %#v", *rep)
+			return rep, nil
 		default:
 		}
 
@@ -119,7 +119,7 @@ func (daemon *Daemon) VolumesPrune(ctx context.Context, pruneFilters filters.Arg
 	pruneVols := func(v volume.Volume) error {
 		select {
 		case <-ctx.Done():
-			logrus.Warnf("VolumesPrune operation cancelled: %#v", *rep)
+			logrus.Debugf("VolumesPrune operation cancelled: %#v", *rep)
 			return ctx.Err()
 		default:
 		}
@@ -138,7 +138,7 @@ func (daemon *Daemon) VolumesPrune(ctx context.Context, pruneFilters filters.Arg
 			if err != nil {
 				logrus.Warnf("could not determine size of volume %s: %v", name, err)
 			}
-			err = daemon.volumes.Remove(v)
+			err = daemon.volumeRm(v)
 			if err != nil {
 				logrus.Warnf("could not remove volume %s: %v", name, err)
 				return nil
@@ -151,6 +151,9 @@ func (daemon *Daemon) VolumesPrune(ctx context.Context, pruneFilters filters.Arg
 	}
 
 	err = daemon.traverseLocalVolumes(pruneVols)
+	if err == context.Canceled {
+		return rep, nil
+	}
 
 	return rep, err
 }
@@ -171,11 +174,11 @@ func (daemon *Daemon) ImagesPrune(ctx context.Context, pruneFilters filters.Args
 	rep := &types.ImagesPruneReport{}
 
 	danglingOnly := true
-	if pruneFilters.Include("dangling") {
+	if pruneFilters.Contains("dangling") {
 		if pruneFilters.ExactMatch("dangling", "false") || pruneFilters.ExactMatch("dangling", "0") {
 			danglingOnly = false
 		} else if !pruneFilters.ExactMatch("dangling", "true") && !pruneFilters.ExactMatch("dangling", "1") {
-			return nil, fmt.Errorf("Invalid filter 'dangling=%s'", pruneFilters.Get("dangling"))
+			return nil, invalidFilter{"dangling", pruneFilters.Get("dangling")}
 		}
 	}
 
@@ -202,7 +205,12 @@ func (daemon *Daemon) ImagesPrune(ctx context.Context, pruneFilters filters.Args
 	}
 
 	// Filter intermediary images and get their unique size
-	allLayers := daemon.layerStore.Map()
+	allLayers := make(map[layer.ChainID]layer.Layer)
+	for _, ls := range daemon.layerStores {
+		for k, v := range ls.Map() {
+			allLayers[k] = v
+		}
+	}
 	topImages := map[image.ID]*image.Image{}
 	for id, img := range allImages {
 		select {
@@ -295,8 +303,7 @@ deleteImagesLoop:
 	}
 
 	if canceled {
-		logrus.Warnf("ImagesPrune operation cancelled: %#v", *rep)
-		return nil, ctx.Err()
+		logrus.Debugf("ImagesPrune operation cancelled: %#v", *rep)
 	}
 
 	return rep, nil
@@ -312,6 +319,7 @@ func (daemon *Daemon) localNetworksPrune(ctx context.Context, pruneFilters filte
 	l := func(nw libnetwork.Network) bool {
 		select {
 		case <-ctx.Done():
+			// context cancelled
 			return true
 		default:
 		}
@@ -362,7 +370,7 @@ func (daemon *Daemon) clusterNetworksPrune(ctx context.Context, pruneFilters fil
 	for _, nw := range networks {
 		select {
 		case <-ctx.Done():
-			return rep, ctx.Err()
+			return rep, nil
 		default:
 			if nw.Ingress {
 				// Routing-mesh network removal has to be explicitly invoked by user
@@ -419,8 +427,8 @@ func (daemon *Daemon) NetworksPrune(ctx context.Context, pruneFilters filters.Ar
 
 	select {
 	case <-ctx.Done():
-		logrus.Warnf("NetworksPrune operation cancelled: %#v", *rep)
-		return nil, ctx.Err()
+		logrus.Debugf("NetworksPrune operation cancelled: %#v", *rep)
+		return rep, nil
 	default:
 	}
 
@@ -429,7 +437,7 @@ func (daemon *Daemon) NetworksPrune(ctx context.Context, pruneFilters filters.Ar
 
 func getUntilFromPruneFilters(pruneFilters filters.Args) (time.Time, error) {
 	until := time.Time{}
-	if !pruneFilters.Include("until") {
+	if !pruneFilters.Contains("until") {
 		return until, nil
 	}
 	untilFilters := pruneFilters.Get("until")
@@ -453,8 +461,8 @@ func matchLabels(pruneFilters filters.Args, labels map[string]string) bool {
 		return false
 	}
 	// By default MatchKVList will return true if field (like 'label!') does not exist
-	// So we have to add additional Include("label!") check
-	if pruneFilters.Include("label!") {
+	// So we have to add additional Contains("label!") check
+	if pruneFilters.Contains("label!") {
 		if pruneFilters.MatchKVList("label!", labels) {
 			return false
 		}

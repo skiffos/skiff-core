@@ -1,4 +1,4 @@
-package request
+package request // import "github.com/docker/docker/integration-cli/request"
 
 import (
 	"bufio"
@@ -20,7 +20,6 @@ import (
 	dclient "github.com/docker/docker/client"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/ioutils"
-	"github.com/docker/docker/pkg/testutil"
 	"github.com/docker/go-connections/sockets"
 	"github.com/docker/go-connections/tlsconfig"
 	"github.com/pkg/errors"
@@ -100,7 +99,7 @@ func DoOnHost(host, endpoint string, modifiers ...func(*http.Request) error) (*h
 	if err != nil {
 		return nil, nil, err
 	}
-	client, err := NewClient(host)
+	client, err := NewHTTPClient(host)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -129,7 +128,11 @@ func New(host, endpoint string, modifiers ...func(*http.Request) error) (*http.R
 		return nil, fmt.Errorf("could not create new request: %v", err)
 	}
 
-	req.URL.Scheme = "http"
+	if os.Getenv("DOCKER_TLS_VERIFY") != "" {
+		req.URL.Scheme = "https"
+	} else {
+		req.URL.Scheme = "http"
+	}
 	req.URL.Host = addr
 
 	for _, config := range modifiers {
@@ -140,8 +143,8 @@ func New(host, endpoint string, modifiers ...func(*http.Request) error) (*http.R
 	return req, nil
 }
 
-// NewClient creates an http client for the specific host
-func NewClient(host string) (*http.Client, error) {
+// NewHTTPClient creates an http client for the specific host
+func NewHTTPClient(host string) (*http.Client, error) {
 	// FIXME(vdemeester) 10*time.Second timeout of SockRequest… ?
 	proto, addr, _, err := dclient.ParseHost(host)
 	if err != nil {
@@ -161,6 +164,11 @@ func NewClient(host string) (*http.Client, error) {
 	return &http.Client{
 		Transport: transport,
 	}, err
+}
+
+// NewClient returns a new Docker API client
+func NewClient() (dclient.APIClient, error) {
+	return dclient.NewClientWithOpts(dclient.WithHost(DaemonHost()))
 }
 
 // FIXME(vdemeester) httputil.ClientConn is deprecated, use http.Client instead (closer to actual client)
@@ -203,8 +211,14 @@ func SockRequest(method, endpoint string, data interface{}, daemon string, modif
 	if err != nil {
 		return -1, nil, err
 	}
-	b, err := testutil.ReadBody(body)
+	b, err := ReadBody(body)
 	return res.StatusCode, b, err
+}
+
+// ReadBody read the specified ReadCloser content and returns it
+func ReadBody(b io.ReadCloser) ([]byte, error) {
+	defer b.Close()
+	return ioutil.ReadAll(b)
 }
 
 // SockRequestRaw create a request against the specified host (with method, endpoint and other request modifier) and

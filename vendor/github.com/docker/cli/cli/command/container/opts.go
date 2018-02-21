@@ -11,20 +11,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/docker/cli/cli/compose/loader"
 	"github.com/docker/cli/opts"
 	"github.com/docker/docker/api/types/container"
 	networktypes "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/pkg/signal"
-	runconfigopts "github.com/docker/docker/runconfig/opts"
 	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 )
 
 var (
-	deviceCgroupRuleRegexp = regexp.MustCompile("^[acb] ([0-9]+|\\*):([0-9]+|\\*) [rwm]{1,3}$")
+	deviceCgroupRuleRegexp = regexp.MustCompile(`^[acb] ([0-9]+|\*):([0-9]+|\*) [rwm]{1,3}$`)
 )
 
 // containerOptions is a data object with all the options for creating a container
@@ -145,7 +145,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
 		expose:            opts.NewListOpts(nil),
 		extraHosts:        opts.NewListOpts(opts.ValidateExtraHost),
 		groupAdd:          opts.NewListOpts(nil),
-		labels:            opts.NewListOpts(opts.ValidateEnv),
+		labels:            opts.NewListOpts(opts.ValidateLabel),
 		labelsFile:        opts.NewListOpts(nil),
 		linkLocalIPs:      opts.NewListOpts(nil),
 		links:             opts.NewListOpts(opts.ValidateLink),
@@ -274,7 +274,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
 
 	// Low-level execution (cgroups, namespaces, ...)
 	flags.StringVar(&copts.cgroupParent, "cgroup-parent", "", "Optional parent cgroup for the container")
-	flags.StringVar(&copts.ipcMode, "ipc", "", "IPC namespace to use")
+	flags.StringVar(&copts.ipcMode, "ipc", "", "IPC mode to use")
 	flags.StringVar(&copts.isolation, "isolation", "", "Container isolation technology")
 	flags.StringVar(&copts.pidMode, "pid", "", "PID namespace to use")
 	flags.Var(&copts.shmSize, "shm-size", "Size of /dev/shm")
@@ -333,7 +333,8 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
 	volumes := copts.volumes.GetMap()
 	// add any bind targets to the list of container volumes
 	for bind := range copts.volumes.GetMap() {
-		if arr := volumeSplitN(bind, 2); len(arr) > 1 {
+		parsed, _ := loader.ParseVolume(bind)
+		if parsed.Source != "" {
 			// after creating the bind mount we want to delete it from the copts.volumes values because
 			// we do not want bind mounts being committed to image configs
 			binds = append(binds, bind)
@@ -409,20 +410,15 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
 	}
 
 	// collect all the environment variables for the container
-	envVariables, err := runconfigopts.ReadKVStrings(copts.envFile.GetAll(), copts.env.GetAll())
+	envVariables, err := opts.ReadKVEnvStrings(copts.envFile.GetAll(), copts.env.GetAll())
 	if err != nil {
 		return nil, err
 	}
 
 	// collect all the labels for the container
-	labels, err := runconfigopts.ReadKVStrings(copts.labelsFile.GetAll(), copts.labels.GetAll())
+	labels, err := opts.ReadKVStrings(copts.labelsFile.GetAll(), copts.labels.GetAll())
 	if err != nil {
 		return nil, err
-	}
-
-	ipcMode := container.IpcMode(copts.ipcMode)
-	if !ipcMode.Valid() {
-		return nil, errors.Errorf("--ipc: invalid IPC mode")
 	}
 
 	pidMode := container.PidMode(copts.pidMode)
@@ -440,7 +436,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
 		return nil, errors.Errorf("--userns: invalid USER mode")
 	}
 
-	restartPolicy, err := runconfigopts.ParseRestartPolicy(copts.restartPolicy)
+	restartPolicy, err := opts.ParseRestartPolicy(copts.restartPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -553,7 +549,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
 		MacAddress:      copts.macAddress,
 		Entrypoint:      entrypoint,
 		WorkingDir:      copts.workingDir,
-		Labels:          runconfigopts.ConvertKVStringsToMap(labels),
+		Labels:          opts.ConvertKVStringsToMap(labels),
 		Healthcheck:     healthConfig,
 	}
 	if flags.Changed("stop-signal") {
@@ -583,7 +579,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
 		ExtraHosts:     copts.extraHosts.GetAll(),
 		VolumesFrom:    copts.volumesFrom.GetAll(),
 		NetworkMode:    container.NetworkMode(copts.netMode),
-		IpcMode:        ipcMode,
+		IpcMode:        container.IpcMode(copts.ipcMode),
 		PidMode:        pidMode,
 		UTSMode:        utsMode,
 		UsernsMode:     usernsMode,
@@ -666,7 +662,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
 }
 
 func parseLoggingOpts(loggingDriver string, loggingOpts []string) (map[string]string, error) {
-	loggingOptsMap := runconfigopts.ConvertKVStringsToMap(loggingOpts)
+	loggingOptsMap := opts.ConvertKVStringsToMap(loggingOpts)
 	if loggingDriver == "none" && len(loggingOpts) > 0 {
 		return map[string]string{}, errors.Errorf("invalid logging opts for driver %s", loggingDriver)
 	}
@@ -826,67 +822,6 @@ func validatePath(val string, validator func(string) bool) (string, error) {
 		return val, errors.Errorf("%s is not an absolute path", containerPath)
 	}
 	return val, nil
-}
-
-// volumeSplitN splits raw into a maximum of n parts, separated by a separator colon.
-// A separator colon is the last `:` character in the regex `[:\\]?[a-zA-Z]:` (note `\\` is `\` escaped).
-// In Windows driver letter appears in two situations:
-// a. `^[a-zA-Z]:` (A colon followed  by `^[a-zA-Z]:` is OK as colon is the separator in volume option)
-// b. A string in the format like `\\?\C:\Windows\...` (UNC).
-// Therefore, a driver letter can only follow either a `:` or `\\`
-// This allows to correctly split strings such as `C:\foo:D:\:rw` or `/tmp/q:/foo`.
-func volumeSplitN(raw string, n int) []string {
-	var array []string
-	if len(raw) == 0 || raw[0] == ':' {
-		// invalid
-		return nil
-	}
-	// numberOfParts counts the number of parts separated by a separator colon
-	numberOfParts := 0
-	// left represents the left-most cursor in raw, updated at every `:` character considered as a separator.
-	left := 0
-	// right represents the right-most cursor in raw incremented with the loop. Note this
-	// starts at index 1 as index 0 is already handle above as a special case.
-	for right := 1; right < len(raw); right++ {
-		// stop parsing if reached maximum number of parts
-		if n >= 0 && numberOfParts >= n {
-			break
-		}
-		if raw[right] != ':' {
-			continue
-		}
-		potentialDriveLetter := raw[right-1]
-		if (potentialDriveLetter >= 'A' && potentialDriveLetter <= 'Z') || (potentialDriveLetter >= 'a' && potentialDriveLetter <= 'z') {
-			if right > 1 {
-				beforePotentialDriveLetter := raw[right-2]
-				// Only `:` or `\\` are checked (`/` could fall into the case of `/tmp/q:/foo`)
-				if beforePotentialDriveLetter != ':' && beforePotentialDriveLetter != '\\' {
-					// e.g. `C:` is not preceded by any delimiter, therefore it was not a drive letter but a path ending with `C:`.
-					array = append(array, raw[left:right])
-					left = right + 1
-					numberOfParts++
-				}
-				// else, `C:` is considered as a drive letter and not as a delimiter, so we continue parsing.
-			}
-			// if right == 1, then `C:` is the beginning of the raw string, therefore `:` is again not considered a delimiter and we continue parsing.
-		} else {
-			// if `:` is not preceded by a potential drive letter, then consider it as a delimiter.
-			array = append(array, raw[left:right])
-			left = right + 1
-			numberOfParts++
-		}
-	}
-	// need to take care of the last part
-	if left < len(raw) {
-		if n >= 0 && numberOfParts >= n {
-			// if the maximum number of parts is reached, just append the rest to the last part
-			// left-1 is at the last `:` that needs to be included since not considered a separator.
-			array[n-1] += raw[left-1:]
-		} else {
-			array = append(array, raw[left:])
-		}
-	}
-	return array
 }
 
 // validateAttach validates that the specified string is a valid attach option.

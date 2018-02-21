@@ -1,6 +1,6 @@
 // +build linux freebsd
 
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"context"
@@ -9,12 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/links"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/stringid"
@@ -22,6 +21,8 @@ import (
 	"github.com/docker/libnetwork"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
 func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]string, error) {
@@ -57,27 +58,41 @@ func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]s
 	return env, nil
 }
 
-func (daemon *Daemon) getIpcContainer(container *container.Container) (*container.Container, error) {
-	containerID := container.HostConfig.IpcMode.Container()
-	container, err := daemon.GetContainer(containerID)
+func (daemon *Daemon) getIpcContainer(id string) (*container.Container, error) {
+	errMsg := "can't join IPC of container " + id
+	// Check the container exists
+	container, err := daemon.GetContainer(id)
 	if err != nil {
-		return nil, errors.Wrapf(err, "cannot join IPC of a non running container: %s", container.ID)
+		return nil, errors.Wrap(err, errMsg)
 	}
-	return container, daemon.checkContainer(container, containerIsRunning, containerIsNotRestarting)
+	// Check the container is running and not restarting
+	if err := daemon.checkContainer(container, containerIsRunning, containerIsNotRestarting); err != nil {
+		return nil, errors.Wrap(err, errMsg)
+	}
+	// Check the container ipc is shareable
+	if st, err := os.Stat(container.ShmPath); err != nil || !st.IsDir() {
+		if err == nil || os.IsNotExist(err) {
+			return nil, errors.New(errMsg + ": non-shareable IPC")
+		}
+		// stat() failed?
+		return nil, errors.Wrap(err, errMsg+": unexpected error from stat "+container.ShmPath)
+	}
+
+	return container, nil
 }
 
 func (daemon *Daemon) getPidContainer(container *container.Container) (*container.Container, error) {
 	containerID := container.HostConfig.PidMode.Container()
 	container, err := daemon.GetContainer(containerID)
 	if err != nil {
-		return nil, errors.Wrapf(err, "cannot join PID of a non running container: %s", container.ID)
+		return nil, errors.Wrapf(err, "cannot join PID of a non running container: %s", containerID)
 	}
 	return container, daemon.checkContainer(container, containerIsRunning, containerIsNotRestarting)
 }
 
 func containerIsRunning(c *container.Container) error {
 	if !c.IsRunning() {
-		return errors.Errorf("container %s is not running", c.ID)
+		return errdefs.Conflict(errors.Errorf("container %s is not running", c.ID))
 	}
 	return nil
 }
@@ -90,49 +105,56 @@ func containerIsNotRestarting(c *container.Container) error {
 }
 
 func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
-	var err error
+	ipcMode := c.HostConfig.IpcMode
 
-	c.ShmPath, err = c.ShmResourcePath()
-	if err != nil {
-		return err
-	}
-
-	if c.HostConfig.IpcMode.IsContainer() {
-		ic, err := daemon.getIpcContainer(c)
+	switch {
+	case ipcMode.IsContainer():
+		ic, err := daemon.getIpcContainer(ipcMode.Container())
 		if err != nil {
 			return err
 		}
 		c.ShmPath = ic.ShmPath
-	} else if c.HostConfig.IpcMode.IsHost() {
+
+	case ipcMode.IsHost():
 		if _, err := os.Stat("/dev/shm"); err != nil {
 			return fmt.Errorf("/dev/shm is not mounted, but must be for --ipc=host")
 		}
 		c.ShmPath = "/dev/shm"
-	} else {
-		rootUID, rootGID := daemon.GetRemappedUIDGID()
+
+	case ipcMode.IsPrivate(), ipcMode.IsNone():
+		// c.ShmPath will/should not be used, so make it empty.
+		// Container's /dev/shm mount comes from OCI spec.
+		c.ShmPath = ""
+
+	case ipcMode.IsEmpty():
+		// A container was created by an older version of the daemon.
+		// The default behavior used to be what is now called "shareable".
+		fallthrough
+
+	case ipcMode.IsShareable():
+		rootIDs := daemon.idMappings.RootPair()
 		if !c.HasMountFor("/dev/shm") {
 			shmPath, err := c.ShmResourcePath()
 			if err != nil {
 				return err
 			}
 
-			if err := idtools.MkdirAllAs(shmPath, 0700, rootUID, rootGID); err != nil {
+			if err := idtools.MkdirAllAndChown(shmPath, 0700, rootIDs); err != nil {
 				return err
 			}
 
-			shmSize := int64(daemon.configStore.ShmSize)
-			if c.HostConfig.ShmSize != 0 {
-				shmSize = c.HostConfig.ShmSize
-			}
-			shmproperty := "mode=1777,size=" + strconv.FormatInt(shmSize, 10)
-			if err := syscall.Mount("shm", shmPath, "tmpfs", uintptr(syscall.MS_NOEXEC|syscall.MS_NOSUID|syscall.MS_NODEV), label.FormatMountLabel(shmproperty, c.GetMountLabel())); err != nil {
+			shmproperty := "mode=1777,size=" + strconv.FormatInt(c.HostConfig.ShmSize, 10)
+			if err := unix.Mount("shm", shmPath, "tmpfs", uintptr(unix.MS_NOEXEC|unix.MS_NOSUID|unix.MS_NODEV), label.FormatMountLabel(shmproperty, c.GetMountLabel())); err != nil {
 				return fmt.Errorf("mounting shm tmpfs: %s", err)
 			}
-			if err := os.Chown(shmPath, rootUID, rootGID); err != nil {
+			if err := os.Chown(shmPath, rootIDs.UID, rootIDs.GID); err != nil {
 				return err
 			}
+			c.ShmPath = shmPath
 		}
 
+	default:
+		return fmt.Errorf("invalid IPC mode: %v", ipcMode)
 	}
 
 	return nil
@@ -143,13 +165,16 @@ func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
 		return nil
 	}
 
-	localMountPath := c.SecretMountPath()
+	localMountPath, err := c.SecretMountPath()
+	if err != nil {
+		return errors.Wrap(err, "error getting secrets mount dir")
+	}
 	logrus.Debugf("secrets: setting up secret dir: %s", localMountPath)
 
 	// retrieve possible remapped range start for root UID, GID
-	rootUID, rootGID := daemon.GetRemappedUIDGID()
+	rootIDs := daemon.idMappings.RootPair()
 	// create tmpfs
-	if err := idtools.MkdirAllAs(localMountPath, 0700, rootUID, rootGID); err != nil {
+	if err := idtools.MkdirAllAndChown(localMountPath, 0700, rootIDs); err != nil {
 		return errors.Wrap(err, "error creating secret local mount path")
 	}
 
@@ -164,7 +189,7 @@ func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
 		}
 	}()
 
-	tmpfsOwnership := fmt.Sprintf("uid=%d,gid=%d", rootUID, rootGID)
+	tmpfsOwnership := fmt.Sprintf("uid=%d,gid=%d", rootIDs.UID, rootIDs.GID)
 	if err := mount.Mount("tmpfs", localMountPath, "tmpfs", "nodev,nosuid,noexec,"+tmpfsOwnership); err != nil {
 		return errors.Wrap(err, "unable to setup secret mount")
 	}
@@ -182,8 +207,11 @@ func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
 
 		// secrets are created in the SecretMountPath on the host, at a
 		// single level
-		fPath := c.SecretFilePath(*s)
-		if err := idtools.MkdirAllAs(filepath.Dir(fPath), 0700, rootUID, rootGID); err != nil {
+		fPath, err := c.SecretFilePath(*s)
+		if err != nil {
+			return errors.Wrap(err, "error getting secret file path")
+		}
+		if err := idtools.MkdirAllAndChown(filepath.Dir(fPath), 0700, rootIDs); err != nil {
 			return errors.Wrap(err, "error creating secret mount path")
 		}
 
@@ -191,9 +219,9 @@ func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
 			"name": s.File.Name,
 			"path": fPath,
 		}).Debug("injecting secret")
-		secret := c.DependencyStore.Secrets().Get(s.SecretID)
-		if secret == nil {
-			return fmt.Errorf("unable to get secret from secret store")
+		secret, err := c.DependencyStore.Secrets().Get(s.SecretID)
+		if err != nil {
+			return errors.Wrap(err, "unable to get secret from secret store")
 		}
 		if err := ioutil.WriteFile(fPath, secret.Spec.Data, s.File.Mode); err != nil {
 			return errors.Wrap(err, "error injecting secret")
@@ -208,8 +236,11 @@ func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
 			return err
 		}
 
-		if err := os.Chown(fPath, rootUID+uid, rootGID+gid); err != nil {
+		if err := os.Chown(fPath, rootIDs.UID+uid, rootIDs.GID+gid); err != nil {
 			return errors.Wrap(err, "error setting ownership for secret")
+		}
+		if err := os.Chmod(fPath, s.File.Mode); err != nil {
+			return errors.Wrap(err, "error setting file mode for secret")
 		}
 	}
 
@@ -228,13 +259,16 @@ func (daemon *Daemon) setupConfigDir(c *container.Container) (setupErr error) {
 		return nil
 	}
 
-	localPath := c.ConfigsDirPath()
+	localPath, err := c.ConfigsDirPath()
+	if err != nil {
+		return err
+	}
 	logrus.Debugf("configs: setting up config dir: %s", localPath)
 
 	// retrieve possible remapped range start for root UID, GID
-	rootUID, rootGID := daemon.GetRemappedUIDGID()
+	rootIDs := daemon.idMappings.RootPair()
 	// create tmpfs
-	if err := idtools.MkdirAllAs(localPath, 0700, rootUID, rootGID); err != nil {
+	if err := idtools.MkdirAllAndChown(localPath, 0700, rootIDs); err != nil {
 		return errors.Wrap(err, "error creating config dir")
 	}
 
@@ -257,18 +291,21 @@ func (daemon *Daemon) setupConfigDir(c *container.Container) (setupErr error) {
 			continue
 		}
 
-		fPath := c.ConfigFilePath(*configRef)
+		fPath, err := c.ConfigFilePath(*configRef)
+		if err != nil {
+			return err
+		}
 
 		log := logrus.WithFields(logrus.Fields{"name": configRef.File.Name, "path": fPath})
 
-		if err := idtools.MkdirAllAs(filepath.Dir(fPath), 0700, rootUID, rootGID); err != nil {
+		if err := idtools.MkdirAllAndChown(filepath.Dir(fPath), 0700, rootIDs); err != nil {
 			return errors.Wrap(err, "error creating config path")
 		}
 
 		log.Debug("injecting config")
-		config := c.DependencyStore.Configs().Get(configRef.ConfigID)
-		if config == nil {
-			return fmt.Errorf("unable to get config from config store")
+		config, err := c.DependencyStore.Configs().Get(configRef.ConfigID)
+		if err != nil {
+			return errors.Wrap(err, "unable to get config from config store")
 		}
 		if err := ioutil.WriteFile(fPath, config.Spec.Data, configRef.File.Mode); err != nil {
 			return errors.Wrap(err, "error injecting config")
@@ -283,9 +320,14 @@ func (daemon *Daemon) setupConfigDir(c *container.Container) (setupErr error) {
 			return err
 		}
 
-		if err := os.Chown(fPath, rootUID+uid, rootGID+gid); err != nil {
+		if err := os.Chown(fPath, rootIDs.UID+uid, rootIDs.GID+gid); err != nil {
 			return errors.Wrap(err, "error setting ownership for config")
 		}
+		if err := os.Chmod(fPath, configRef.File.Mode); err != nil {
+			return errors.Wrap(err, "error setting file mode for config")
+		}
+
+		label.Relabel(fPath, c.MountLabel, false)
 	}
 
 	return nil
@@ -301,8 +343,8 @@ func killProcessDirectly(cntr *container.Container) error {
 		// Ensure that we don't kill ourselves
 		if pid := cntr.GetPID(); pid != 0 {
 			logrus.Infof("Container %s failed to exit within 10 seconds of kill - trying direct SIGKILL", stringid.TruncateID(cntr.ID))
-			if err := syscall.Kill(pid, 9); err != nil {
-				if err != syscall.ESRCH {
+			if err := unix.Kill(pid, 9); err != nil {
+				if err != unix.ESRCH {
 					return err
 				}
 				e := errNoSuchProcess{pid, 9}
@@ -315,7 +357,7 @@ func killProcessDirectly(cntr *container.Container) error {
 }
 
 func detachMounted(path string) error {
-	return syscall.Unmount(path, syscall.MNT_DETACH)
+	return unix.Unmount(path, unix.MNT_DETACH)
 }
 
 func isLinkable(child *container.Container) bool {
@@ -349,8 +391,28 @@ func setupPathsAndSandboxOptions(container *container.Container, sboxOptions *[]
 	return nil
 }
 
-func initializeNetworkingPaths(container *container.Container, nc *container.Container) {
+func (daemon *Daemon) initializeNetworkingPaths(container *container.Container, nc *container.Container) error {
 	container.HostnamePath = nc.HostnamePath
 	container.HostsPath = nc.HostsPath
 	container.ResolvConfPath = nc.ResolvConfPath
+	return nil
+}
+
+func (daemon *Daemon) setupContainerMountsRoot(c *container.Container) error {
+	// get the root mount path so we can make it unbindable
+	p, err := c.MountsResourcePath("")
+	if err != nil {
+		return err
+	}
+
+	if err := idtools.MkdirAllAndChown(p, 0700, daemon.idMappings.RootPair()); err != nil {
+		return err
+	}
+
+	if err := mount.MakeUnbindable(p); err != nil {
+		// Setting unbindable is a precaution and is not neccessary for correct operation.
+		// Do not error out if this fails.
+		logrus.WithError(err).WithField("resource", p).WithField("container", c.ID).Warn("Error setting container resource mounts to unbindable, this may cause mount leakages, preventing removal of this container.")
+	}
+	return nil
 }

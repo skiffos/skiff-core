@@ -8,7 +8,6 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/opts"
 	containertypes "github.com/docker/docker/api/types/container"
-	runconfigopts "github.com/docker/docker/runconfig/opts"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/net/context"
@@ -36,7 +35,7 @@ type updateOptions struct {
 }
 
 // NewUpdateCommand creates a new cobra.Command for `docker update`
-func NewUpdateCommand(dockerCli *command.DockerCli) *cobra.Command {
+func NewUpdateCommand(dockerCli command.Cli) *cobra.Command {
 	var options updateOptions
 
 	cmd := &cobra.Command{
@@ -73,7 +72,7 @@ func NewUpdateCommand(dockerCli *command.DockerCli) *cobra.Command {
 	return cmd
 }
 
-func runUpdate(dockerCli *command.DockerCli, options *updateOptions) error {
+func runUpdate(dockerCli command.Cli, options *updateOptions) error {
 	var err error
 
 	if options.nFlag == 0 {
@@ -82,7 +81,7 @@ func runUpdate(dockerCli *command.DockerCli, options *updateOptions) error {
 
 	var restartPolicy containertypes.RestartPolicy
 	if options.restartPolicy != "" {
-		restartPolicy, err = runconfigopts.ParseRestartPolicy(options.restartPolicy)
+		restartPolicy, err = opts.ParseRestartPolicy(options.restartPolicy)
 		if err != nil {
 			return err
 		}

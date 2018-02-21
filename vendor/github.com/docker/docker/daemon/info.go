@@ -1,12 +1,12 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/cli/debug"
@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/volume/drivers"
 	"github.com/docker/go-connections/sockets"
+	"github.com/sirupsen/logrus"
 )
 
 // SystemInfo returns information about the host server the daemon is running on.
@@ -72,20 +73,31 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 	if selinuxEnabled() {
 		securityOptions = append(securityOptions, "name=selinux")
 	}
-	uid, gid := daemon.GetRemappedUIDGID()
-	if uid != 0 || gid != 0 {
+	rootIDs := daemon.idMappings.RootPair()
+	if rootIDs.UID != 0 || rootIDs.GID != 0 {
 		securityOptions = append(securityOptions, "name=userns")
 	}
 
+	var ds [][2]string
+	drivers := ""
+	for os, gd := range daemon.graphDrivers {
+		ds = append(ds, daemon.layerStores[os].DriverStatus()...)
+		drivers += gd
+		if len(daemon.graphDrivers) > 1 {
+			drivers += fmt.Sprintf(" (%s) ", os)
+		}
+	}
+	drivers = strings.TrimSpace(drivers)
+
 	v := &types.Info{
 		ID:                 daemon.ID,
-		Containers:         int(cRunning + cPaused + cStopped),
-		ContainersRunning:  int(cRunning),
-		ContainersPaused:   int(cPaused),
-		ContainersStopped:  int(cStopped),
+		Containers:         cRunning + cPaused + cStopped,
+		ContainersRunning:  cRunning,
+		ContainersPaused:   cPaused,
+		ContainersStopped:  cStopped,
 		Images:             len(daemon.imageStore.Map()),
-		Driver:             daemon.GraphDriverName(),
-		DriverStatus:       daemon.layerStore.DriverStatus(),
+		Driver:             drivers,
+		DriverStatus:       ds,
 		Plugins:            daemon.showPluginsInfo(),
 		IPv4Forwarding:     !sysInfo.IPv4ForwardingDisabled,
 		BridgeNfIptables:   !sysInfo.BridgeNFCallIPTablesDisabled,
@@ -105,6 +117,7 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 		RegistryConfig:     daemon.RegistryService.ServiceConfig(),
 		NCPU:               sysinfo.NumCPU(),
 		MemTotal:           meminfo.MemTotal,
+		GenericResources:   daemon.genericResources,
 		DockerRootDir:      daemon.configStore.Root,
 		Labels:             daemon.configStore.Labels,
 		ExperimentalBuild:  daemon.configStore.Experimental,
@@ -135,24 +148,46 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 
 // SystemVersion returns version information about the daemon.
 func (daemon *Daemon) SystemVersion() types.Version {
-	v := types.Version{
-		Version:       dockerversion.Version,
-		GitCommit:     dockerversion.GitCommit,
-		MinAPIVersion: api.MinVersion,
-		GoVersion:     runtime.Version(),
-		Os:            runtime.GOOS,
-		Arch:          runtime.GOARCH,
-		BuildTime:     dockerversion.BuildTime,
-		Experimental:  daemon.configStore.Experimental,
-	}
-
 	kernelVersion := "<unknown>"
 	if kv, err := kernel.GetKernelVersion(); err != nil {
 		logrus.Warnf("Could not get kernel version: %v", err)
 	} else {
 		kernelVersion = kv.String()
 	}
-	v.KernelVersion = kernelVersion
+
+	v := types.Version{
+		Components: []types.ComponentVersion{
+			{
+				Name:    "Engine",
+				Version: dockerversion.Version,
+				Details: map[string]string{
+					"GitCommit":     dockerversion.GitCommit,
+					"ApiVersion":    api.DefaultVersion,
+					"MinAPIVersion": api.MinVersion,
+					"GoVersion":     runtime.Version(),
+					"Os":            runtime.GOOS,
+					"Arch":          runtime.GOARCH,
+					"BuildTime":     dockerversion.BuildTime,
+					"KernelVersion": kernelVersion,
+					"Experimental":  fmt.Sprintf("%t", daemon.configStore.Experimental),
+				},
+			},
+		},
+
+		// Populate deprecated fields for older clients
+		Version:       dockerversion.Version,
+		GitCommit:     dockerversion.GitCommit,
+		APIVersion:    api.DefaultVersion,
+		MinAPIVersion: api.MinVersion,
+		GoVersion:     runtime.Version(),
+		Os:            runtime.GOOS,
+		Arch:          runtime.GOARCH,
+		BuildTime:     dockerversion.BuildTime,
+		KernelVersion: kernelVersion,
+		Experimental:  daemon.configStore.Experimental,
+	}
+
+	v.Platform.Name = dockerversion.PlatformName
 
 	return v
 }

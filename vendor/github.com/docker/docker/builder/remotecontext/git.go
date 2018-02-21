@@ -1,16 +1,17 @@
-package remotecontext
+package remotecontext // import "github.com/docker/docker/builder/remotecontext"
 
 import (
 	"os"
 
 	"github.com/docker/docker/builder"
+	"github.com/docker/docker/builder/remotecontext/git"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/gitutils"
+	"github.com/sirupsen/logrus"
 )
 
 // MakeGitContext returns a Context from gitURL that is cloned in a temporary directory.
 func MakeGitContext(gitURL string) (builder.Source, error) {
-	root, err := gitutils.Clone(gitURL)
+	root, err := git.Clone(gitURL)
 	if err != nil {
 		return nil, err
 	}
@@ -21,9 +22,14 @@ func MakeGitContext(gitURL string) (builder.Source, error) {
 	}
 
 	defer func() {
-		// TODO: print errors?
-		c.Close()
-		os.RemoveAll(root)
+		err := c.Close()
+		if err != nil {
+			logrus.WithField("action", "MakeGitContext").WithField("module", "builder").WithField("url", gitURL).WithError(err).Error("error while closing git context")
+		}
+		err = os.RemoveAll(root)
+		if err != nil {
+			logrus.WithField("action", "MakeGitContext").WithField("module", "builder").WithField("url", gitURL).WithError(err).Error("error while removing path and children of root")
+		}
 	}()
-	return MakeTarSumContext(c)
+	return FromArchive(c)
 }

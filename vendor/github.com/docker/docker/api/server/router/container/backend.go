@@ -1,4 +1,4 @@
-package container
+package container // import "github.com/docker/docker/api/server/router/container"
 
 import (
 	"io"
@@ -18,7 +18,7 @@ type execBackend interface {
 	ContainerExecCreate(name string, config *types.ExecConfig) (string, error)
 	ContainerExecInspect(id string) (*backend.ExecInspect, error)
 	ContainerExecResize(name string, height, width int) error
-	ContainerExecStart(ctx context.Context, name string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer) error
+	ContainerExecStart(ctx context.Context, name string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
 	ExecExists(name string) (bool, error)
 }
 
@@ -51,7 +51,7 @@ type stateBackend interface {
 type monitorBackend interface {
 	ContainerChanges(name string) ([]archive.Change, error)
 	ContainerInspect(name string, size bool, version string) (interface{}, error)
-	ContainerLogs(ctx context.Context, name string, config *types.ContainerLogsOptions) (<-chan *backend.LogMessage, error)
+	ContainerLogs(ctx context.Context, name string, config *types.ContainerLogsOptions) (msgs <-chan *backend.LogMessage, tty bool, err error)
 	ContainerStats(ctx context.Context, name string, config *backend.ContainerStatsConfig) error
 	ContainerTop(name string, psArgs string) (*container.ContainerTopOKBody, error)
 
@@ -68,8 +68,13 @@ type systemBackend interface {
 	ContainersPrune(ctx context.Context, pruneFilters filters.Args) (*types.ContainersPruneReport, error)
 }
 
+type commitBackend interface {
+	CreateImageFromContainer(name string, config *backend.CreateImageConfig) (imageID string, err error)
+}
+
 // Backend is all the methods that need to be implemented to provide container specific functionality.
 type Backend interface {
+	commitBackend
 	execBackend
 	copyBackend
 	stateBackend

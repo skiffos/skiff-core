@@ -1,6 +1,7 @@
-package fileutils
+package fileutils // import "github.com/docker/docker/pkg/fileutils"
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
@@ -9,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

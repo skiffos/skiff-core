@@ -1,22 +1,21 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"path/filepath"
 	"sync"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/plugingetter"
-	"github.com/docker/go-metrics"
+	metrics "github.com/docker/go-metrics"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 )
 
 const metricsPluginType = "MetricsCollector"
 
 var (
 	containerActions          metrics.LabeledTimer
-	containerStates           metrics.LabeledGauge
 	imageActions              metrics.LabeledTimer
 	networkActions            metrics.LabeledTimer
 	engineInfo                metrics.LabeledGauge
@@ -119,7 +118,8 @@ func (d *Daemon) cleanupMetricsPlugins() {
 	var wg sync.WaitGroup
 	wg.Add(len(ls))
 
-	for _, p := range ls {
+	for _, plugin := range ls {
+		p := plugin
 		go func() {
 			defer wg.Done()
 			pluginStopMetricsCollection(p)
@@ -170,5 +170,4 @@ func pluginStopMetricsCollection(p plugingetter.CompatPlugin) {
 			logrus.WithError(err).WithField("name", p.Name()).WithField("socket", sockPath).Error("error unmounting metrics socket for plugin")
 		}
 	}
-	return
 }

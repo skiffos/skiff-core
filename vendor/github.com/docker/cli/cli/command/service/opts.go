@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/docker/cli/opts"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
-	runconfigopts "github.com/docker/docker/runconfig/opts"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/api/defaults"
 	shlex "github.com/flynn-archive/go-shlex"
@@ -222,23 +222,30 @@ func (opts updateOptions) rollbackConfig(flags *pflag.FlagSet) *swarm.UpdateConf
 }
 
 type resourceOptions struct {
-	limitCPU      opts.NanoCPUs
-	limitMemBytes opts.MemBytes
-	resCPU        opts.NanoCPUs
-	resMemBytes   opts.MemBytes
+	limitCPU            opts.NanoCPUs
+	limitMemBytes       opts.MemBytes
+	resCPU              opts.NanoCPUs
+	resMemBytes         opts.MemBytes
+	resGenericResources []string
 }
 
-func (r *resourceOptions) ToResourceRequirements() *swarm.ResourceRequirements {
+func (r *resourceOptions) ToResourceRequirements() (*swarm.ResourceRequirements, error) {
+	generic, err := ParseGenericResources(r.resGenericResources)
+	if err != nil {
+		return nil, err
+	}
+
 	return &swarm.ResourceRequirements{
 		Limits: &swarm.Resources{
 			NanoCPUs:    r.limitCPU.Value(),
 			MemoryBytes: r.limitMemBytes.Value(),
 		},
 		Reservations: &swarm.Resources{
-			NanoCPUs:    r.resCPU.Value(),
-			MemoryBytes: r.resMemBytes.Value(),
+			NanoCPUs:         r.resCPU.Value(),
+			MemoryBytes:      r.resMemBytes.Value(),
+			GenericResources: generic,
 		},
-	}
+	}, nil
 }
 
 type restartPolicyOptions struct {
@@ -346,18 +353,21 @@ func (c *credentialSpecOpt) Value() *swarm.CredentialSpec {
 	return c.value
 }
 
-func convertNetworks(ctx context.Context, apiClient client.NetworkAPIClient, networks opts.NetworkOpt) ([]swarm.NetworkAttachmentConfig, error) {
+func resolveNetworkID(ctx context.Context, apiClient client.NetworkAPIClient, networkIDOrName string) (string, error) {
+	nw, err := apiClient.NetworkInspect(ctx, networkIDOrName, types.NetworkInspectOptions{Scope: "swarm"})
+	return nw.ID, err
+}
+
+func convertNetworks(networks opts.NetworkOpt) []swarm.NetworkAttachmentConfig {
 	var netAttach []swarm.NetworkAttachmentConfig
 	for _, net := range networks.Value() {
-		networkIDOrName := net.Target
-		_, err := apiClient.NetworkInspect(ctx, networkIDOrName, false)
-		if err != nil {
-			return nil, err
-		}
-		netAttach = append(netAttach, swarm.NetworkAttachmentConfig{Target: net.Target, Aliases: net.Aliases, DriverOpts: net.DriverOpts})
+		netAttach = append(netAttach, swarm.NetworkAttachmentConfig{
+			Target:     net.Target,
+			Aliases:    net.Aliases,
+			DriverOpts: net.DriverOpts,
+		})
 	}
-	sort.Sort(byNetworkTarget(netAttach))
-	return netAttach, nil
+	return netAttach
 }
 
 type endpointOptions struct {
@@ -389,7 +399,7 @@ func (ldo *logDriverOptions) toLogDriver() *swarm.Driver {
 	// set the log driver only if specified.
 	return &swarm.Driver{
 		Name:    ldo.name,
-		Options: runconfigopts.ConvertKVStringsToMap(ldo.opts.GetAll()),
+		Options: opts.ConvertKVStringsToMap(ldo.opts.GetAll()),
 	}
 }
 
@@ -501,6 +511,8 @@ type serviceOptions struct {
 	healthcheck healthCheckOptions
 	secrets     opts.SecretOpt
 	configs     opts.ConfigOpt
+
+	isolation string
 }
 
 func newServiceOptions() *serviceOptions {
@@ -519,36 +531,36 @@ func newServiceOptions() *serviceOptions {
 	}
 }
 
-func (opts *serviceOptions) ToServiceMode() (swarm.ServiceMode, error) {
+func (options *serviceOptions) ToServiceMode() (swarm.ServiceMode, error) {
 	serviceMode := swarm.ServiceMode{}
-	switch opts.mode {
+	switch options.mode {
 	case "global":
-		if opts.replicas.Value() != nil {
+		if options.replicas.Value() != nil {
 			return serviceMode, errors.Errorf("replicas can only be used with replicated mode")
 		}
 
 		serviceMode.Global = &swarm.GlobalService{}
 	case "replicated":
 		serviceMode.Replicated = &swarm.ReplicatedService{
-			Replicas: opts.replicas.Value(),
+			Replicas: options.replicas.Value(),
 		}
 	default:
-		return serviceMode, errors.Errorf("Unknown mode: %s, only replicated and global supported", opts.mode)
+		return serviceMode, errors.Errorf("Unknown mode: %s, only replicated and global supported", options.mode)
 	}
 	return serviceMode, nil
 }
 
-func (opts *serviceOptions) ToStopGracePeriod(flags *pflag.FlagSet) *time.Duration {
+func (options *serviceOptions) ToStopGracePeriod(flags *pflag.FlagSet) *time.Duration {
 	if flags.Changed(flagStopGracePeriod) {
-		return opts.stopGrace.Value()
+		return options.stopGrace.Value()
 	}
 	return nil
 }
 
-func (opts *serviceOptions) ToService(ctx context.Context, apiClient client.NetworkAPIClient, flags *pflag.FlagSet) (swarm.ServiceSpec, error) {
+func (options *serviceOptions) ToService(ctx context.Context, apiClient client.NetworkAPIClient, flags *pflag.FlagSet) (swarm.ServiceSpec, error) {
 	var service swarm.ServiceSpec
 
-	envVariables, err := runconfigopts.ReadKVStrings(opts.envFile.GetAll(), opts.env.GetAll())
+	envVariables, err := opts.ReadKVEnvStrings(options.envFile.GetAll(), options.env.GetAll())
 	if err != nil {
 		return service, err
 	}
@@ -567,68 +579,79 @@ func (opts *serviceOptions) ToService(ctx context.Context, apiClient client.Netw
 		currentEnv = append(currentEnv, env)
 	}
 
-	healthConfig, err := opts.healthcheck.toHealthConfig()
+	healthConfig, err := options.healthcheck.toHealthConfig()
 	if err != nil {
 		return service, err
 	}
 
-	serviceMode, err := opts.ToServiceMode()
+	serviceMode, err := options.ToServiceMode()
 	if err != nil {
 		return service, err
 	}
 
-	networks, err := convertNetworks(ctx, apiClient, opts.networks)
+	networks := convertNetworks(options.networks)
+	for i, net := range networks {
+		nwID, err := resolveNetworkID(ctx, apiClient, net.Target)
+		if err != nil {
+			return service, err
+		}
+		networks[i].Target = nwID
+	}
+	sort.Sort(byNetworkTarget(networks))
+
+	resources, err := options.resources.ToResourceRequirements()
 	if err != nil {
 		return service, err
 	}
 
 	service = swarm.ServiceSpec{
 		Annotations: swarm.Annotations{
-			Name:   opts.name,
-			Labels: runconfigopts.ConvertKVStringsToMap(opts.labels.GetAll()),
+			Name:   options.name,
+			Labels: opts.ConvertKVStringsToMap(options.labels.GetAll()),
 		},
 		TaskTemplate: swarm.TaskSpec{
-			ContainerSpec: swarm.ContainerSpec{
-				Image:      opts.image,
-				Args:       opts.args,
-				Command:    opts.entrypoint.Value(),
+			ContainerSpec: &swarm.ContainerSpec{
+				Image:      options.image,
+				Args:       options.args,
+				Command:    options.entrypoint.Value(),
 				Env:        currentEnv,
-				Hostname:   opts.hostname,
-				Labels:     runconfigopts.ConvertKVStringsToMap(opts.containerLabels.GetAll()),
-				Dir:        opts.workdir,
-				User:       opts.user,
-				Groups:     opts.groups.GetAll(),
-				StopSignal: opts.stopSignal,
-				TTY:        opts.tty,
-				ReadOnly:   opts.readOnly,
-				Mounts:     opts.mounts.Value(),
+				Hostname:   options.hostname,
+				Labels:     opts.ConvertKVStringsToMap(options.containerLabels.GetAll()),
+				Dir:        options.workdir,
+				User:       options.user,
+				Groups:     options.groups.GetAll(),
+				StopSignal: options.stopSignal,
+				TTY:        options.tty,
+				ReadOnly:   options.readOnly,
+				Mounts:     options.mounts.Value(),
 				DNSConfig: &swarm.DNSConfig{
-					Nameservers: opts.dns.GetAll(),
-					Search:      opts.dnsSearch.GetAll(),
-					Options:     opts.dnsOption.GetAll(),
+					Nameservers: options.dns.GetAll(),
+					Search:      options.dnsSearch.GetAll(),
+					Options:     options.dnsOption.GetAll(),
 				},
-				Hosts:           convertExtraHostsToSwarmHosts(opts.hosts.GetAll()),
-				StopGracePeriod: opts.ToStopGracePeriod(flags),
+				Hosts:           convertExtraHostsToSwarmHosts(options.hosts.GetAll()),
+				StopGracePeriod: options.ToStopGracePeriod(flags),
 				Healthcheck:     healthConfig,
+				Isolation:       container.Isolation(options.isolation),
 			},
 			Networks:      networks,
-			Resources:     opts.resources.ToResourceRequirements(),
-			RestartPolicy: opts.restartPolicy.ToRestartPolicy(flags),
+			Resources:     resources,
+			RestartPolicy: options.restartPolicy.ToRestartPolicy(flags),
 			Placement: &swarm.Placement{
-				Constraints: opts.constraints.GetAll(),
-				Preferences: opts.placementPrefs.prefs,
+				Constraints: options.constraints.GetAll(),
+				Preferences: options.placementPrefs.prefs,
 			},
-			LogDriver: opts.logDriver.toLogDriver(),
+			LogDriver: options.logDriver.toLogDriver(),
 		},
 		Mode:           serviceMode,
-		UpdateConfig:   opts.update.updateConfig(flags),
-		RollbackConfig: opts.update.rollbackConfig(flags),
-		EndpointSpec:   opts.endpoint.ToEndpointSpec(),
+		UpdateConfig:   options.update.updateConfig(flags),
+		RollbackConfig: options.update.rollbackConfig(flags),
+		EndpointSpec:   options.endpoint.ToEndpointSpec(),
 	}
 
-	if opts.credentialSpec.Value() != nil {
+	if options.credentialSpec.Value() != nil {
 		service.TaskTemplate.ContainerSpec.Privileges = &swarm.Privileges{
-			CredentialSpec: opts.credentialSpec.Value(),
+			CredentialSpec: options.credentialSpec.Value(),
 		}
 	}
 
@@ -686,6 +709,11 @@ func buildServiceDefaultFlagMapping() flagDefaults {
 	return defaultFlagValues
 }
 
+func addDetachFlag(flags *pflag.FlagSet, detach *bool) {
+	flags.BoolVarP(detach, flagDetach, "d", false, "Exit immediately instead of waiting for the service to converge")
+	flags.SetAnnotation(flagDetach, "version", []string{"1.29"})
+}
+
 // addServiceFlags adds all flags that are common to both `create` and `update`.
 // Any flags that are not common are added separately in the individual command
 func addServiceFlags(flags *pflag.FlagSet, opts *serviceOptions, defaultFlagValues flagDefaults) {
@@ -696,8 +724,8 @@ func addServiceFlags(flags *pflag.FlagSet, opts *serviceOptions, defaultFlagValu
 		return desc
 	}
 
-	flags.BoolVarP(&opts.detach, "detach", "d", true, "Exit immediately instead of waiting for the service to converge")
-	flags.BoolVarP(&opts.quiet, "quiet", "q", false, "Suppress progress output")
+	addDetachFlag(flags, &opts.detach)
+	flags.BoolVarP(&opts.quiet, flagQuiet, "q", false, "Suppress progress output")
 
 	flags.StringVarP(&opts.workdir, flagWorkdir, "w", "", "Working directory inside the container")
 	flags.StringVarP(&opts.user, flagUser, "u", "", "Username or UID (format: <name|uid>[:<group|gid>])")
@@ -775,6 +803,8 @@ func addServiceFlags(flags *pflag.FlagSet, opts *serviceOptions, defaultFlagValu
 
 	flags.StringVar(&opts.stopSignal, flagStopSignal, "", "Signal to stop the container")
 	flags.SetAnnotation(flagStopSignal, "version", []string{"1.28"})
+	flags.StringVar(&opts.isolation, flagIsolation, "", "Service container isolation mode")
+	flags.SetAnnotation(flagIsolation, "version", []string{"1.35"})
 }
 
 const (
@@ -788,6 +818,7 @@ const (
 	flagContainerLabel          = "container-label"
 	flagContainerLabelRemove    = "container-label-rm"
 	flagContainerLabelAdd       = "container-label-add"
+	flagDetach                  = "detach"
 	flagDNS                     = "dns"
 	flagDNSRemove               = "dns-rm"
 	flagDNSAdd                  = "dns-add"
@@ -799,17 +830,19 @@ const (
 	flagDNSSearchAdd            = "dns-search-add"
 	flagEndpointMode            = "endpoint-mode"
 	flagEntrypoint              = "entrypoint"
-	flagHost                    = "host"
-	flagHostAdd                 = "host-add"
-	flagHostRemove              = "host-rm"
-	flagHostname                = "hostname"
 	flagEnv                     = "env"
 	flagEnvFile                 = "env-file"
 	flagEnvRemove               = "env-rm"
 	flagEnvAdd                  = "env-add"
+	flagGenericResourcesRemove  = "generic-resource-rm"
+	flagGenericResourcesAdd     = "generic-resource-add"
 	flagGroup                   = "group"
 	flagGroupAdd                = "group-add"
 	flagGroupRemove             = "group-rm"
+	flagHost                    = "host"
+	flagHostAdd                 = "host-add"
+	flagHostRemove              = "host-rm"
+	flagHostname                = "hostname"
 	flagLabel                   = "label"
 	flagLabelRemove             = "label-rm"
 	flagLabelAdd                = "label-add"
@@ -826,6 +859,7 @@ const (
 	flagPublish                 = "publish"
 	flagPublishRemove           = "publish-rm"
 	flagPublishAdd              = "publish-add"
+	flagQuiet                   = "quiet"
 	flagReadOnly                = "read-only"
 	flagReplicas                = "replicas"
 	flagReserveCPU              = "reserve-cpu"
@@ -834,6 +868,7 @@ const (
 	flagRestartDelay            = "restart-delay"
 	flagRestartMaxAttempts      = "restart-max-attempts"
 	flagRestartWindow           = "restart-window"
+	flagRollback                = "rollback"
 	flagRollbackDelay           = "rollback-delay"
 	flagRollbackFailureAction   = "rollback-failure-action"
 	flagRollbackMaxFailureRatio = "rollback-max-failure-ratio"
@@ -867,4 +902,5 @@ const (
 	flagConfig                  = "config"
 	flagConfigAdd               = "config-add"
 	flagConfigRemove            = "config-rm"
+	flagIsolation               = "isolation"
 )

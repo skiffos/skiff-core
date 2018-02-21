@@ -5,20 +5,20 @@ import (
 	"io"
 	"net/http/httputil"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/opts"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/pkg/promise"
 	"github.com/docker/docker/pkg/signal"
 	"github.com/docker/docker/pkg/term"
-	"github.com/docker/libnetwork/resolvconf/dns"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/net/context"
@@ -29,10 +29,11 @@ type runOptions struct {
 	sigProxy   bool
 	name       string
 	detachKeys string
+	platform   string
 }
 
 // NewRunCommand create a new `docker run` command
-func NewRunCommand(dockerCli *command.DockerCli) *cobra.Command {
+func NewRunCommand(dockerCli command.Cli) *cobra.Command {
 	var opts runOptions
 	var copts *containerOptions
 
@@ -62,6 +63,7 @@ func NewRunCommand(dockerCli *command.DockerCli) *cobra.Command {
 	// with hostname
 	flags.Bool("help", false, "Print usage")
 
+	command.AddPlatformFlag(flags, &opts.platform)
 	command.AddTrustVerificationFlags(flags)
 	copts = addFlags(flags)
 	return cmd
@@ -77,25 +79,47 @@ func warnOnOomKillDisable(hostConfig container.HostConfig, stderr io.Writer) {
 // they are trying to set a DNS to a localhost address
 func warnOnLocalhostDNS(hostConfig container.HostConfig, stderr io.Writer) {
 	for _, dnsIP := range hostConfig.DNS {
-		if dns.IsLocalhost(dnsIP) {
+		if isLocalhost(dnsIP) {
 			fmt.Fprintf(stderr, "WARNING: Localhost DNS setting (--dns=%s) may fail in containers.\n", dnsIP)
 			return
 		}
 	}
 }
 
-func runRun(dockerCli *command.DockerCli, flags *pflag.FlagSet, opts *runOptions, copts *containerOptions) error {
+// IPLocalhost is a regex pattern for IPv4 or IPv6 loopback range.
+const ipLocalhost = `((127\.([0-9]{1,3}\.){2}[0-9]{1,3})|(::1)$)`
+
+var localhostIPRegexp = regexp.MustCompile(ipLocalhost)
+
+// IsLocalhost returns true if ip matches the localhost IP regular expression.
+// Used for determining if nameserver settings are being passed which are
+// localhost addresses
+func isLocalhost(ip string) bool {
+	return localhostIPRegexp.MatchString(ip)
+}
+
+func runRun(dockerCli command.Cli, flags *pflag.FlagSet, ropts *runOptions, copts *containerOptions) error {
+	proxyConfig := dockerCli.ConfigFile().ParseProxyConfig(dockerCli.Client().DaemonHost(), copts.env.GetAll())
+	newEnv := []string{}
+	for k, v := range proxyConfig {
+		if v == nil {
+			newEnv = append(newEnv, k)
+		} else {
+			newEnv = append(newEnv, fmt.Sprintf("%s=%s", k, *v))
+		}
+	}
+	copts.env = *opts.NewListOptsRef(&newEnv, nil)
 	containerConfig, err := parse(flags, copts)
 	// just in case the parse does not exit
 	if err != nil {
 		reportError(dockerCli.Err(), "run", err.Error(), true)
 		return cli.StatusError{StatusCode: 125}
 	}
-	return runContainer(dockerCli, opts, copts, containerConfig)
+	return runContainer(dockerCli, ropts, copts, containerConfig)
 }
 
 // nolint: gocyclo
-func runContainer(dockerCli *command.DockerCli, opts *runOptions, copts *containerOptions, containerConfig *containerConfig) error {
+func runContainer(dockerCli command.Cli, opts *runOptions, copts *containerOptions, containerConfig *containerConfig) error {
 	config := containerConfig.Config
 	hostConfig := containerConfig.HostConfig
 	stdout, stderr := dockerCli.Out(), dockerCli.Err()
@@ -138,7 +162,7 @@ func runContainer(dockerCli *command.DockerCli, opts *runOptions, copts *contain
 
 	ctx, cancelFun := context.WithCancel(context.Background())
 
-	createResponse, err := createContainer(ctx, dockerCli, containerConfig, opts.name)
+	createResponse, err := createContainer(ctx, dockerCli, containerConfig, opts.name, opts.platform)
 	if err != nil {
 		reportError(stderr, cmdPath, err.Error(), true)
 		return runStartContainerErr(err)
@@ -147,6 +171,7 @@ func runContainer(dockerCli *command.DockerCli, opts *runOptions, copts *contain
 		sigc := ForwardAllSignals(ctx, dockerCli, createResponse.ID)
 		defer signal.StopCatch(sigc)
 	}
+
 	var (
 		waitDisplayID chan struct{}
 		errCh         chan error
@@ -166,10 +191,11 @@ func runContainer(dockerCli *command.DockerCli, opts *runOptions, copts *contain
 		}
 
 		close, err := attachContainer(ctx, dockerCli, &errCh, config, createResponse.ID)
-		defer close()
+
 		if err != nil {
 			return err
 		}
+		defer close()
 	}
 
 	statusChan := waitExitOrRemoved(ctx, dockerCli, createResponse.ID, copts.autoRemove)
@@ -266,22 +292,27 @@ func attachContainer(
 		return nil, errAttach
 	}
 
-	*errCh = promise.Go(func() error {
-		streamer := hijackedIOStreamer{
-			streams:      dockerCli,
-			inputStream:  in,
-			outputStream: out,
-			errorStream:  cerr,
-			resp:         resp,
-			tty:          config.Tty,
-			detachKeys:   options.DetachKeys,
-		}
+	ch := make(chan error, 1)
+	*errCh = ch
 
-		if errHijack := streamer.stream(ctx); errHijack != nil {
-			return errHijack
-		}
-		return errAttach
-	})
+	go func() {
+		ch <- func() error {
+			streamer := hijackedIOStreamer{
+				streams:      dockerCli,
+				inputStream:  in,
+				outputStream: out,
+				errorStream:  cerr,
+				resp:         resp,
+				tty:          config.Tty,
+				detachKeys:   options.DetachKeys,
+			}
+
+			if errHijack := streamer.stream(ctx); errHijack != nil {
+				return errHijack
+			}
+			return errAttach
+		}()
+	}()
 	return resp.Close, nil
 }
 

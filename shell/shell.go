@@ -9,12 +9,11 @@ import (
 	"path"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/promise"
 	"github.com/paralin/skiff-core/config"
+	log "github.com/sirupsen/logrus"
 )
 
 // Shell holds an instance of a user's interaction with a Docker container.
@@ -28,7 +27,7 @@ func NewShell(homeDir string) *Shell {
 }
 
 // buildDockerClient builds the docker client.
-func (s *Shell) buildDockerClient() (*client.Client, error) {
+func (s *Shell) buildDockerClient() (client.APIClient, error) {
 	return client.NewClient(client.DefaultDockerHost, api.DefaultVersion, nil, nil)
 }
 
@@ -86,6 +85,7 @@ func (s *Shell) Execute(cmd []string) error {
 	if err != nil {
 		return err
 	}
+
 	if ins.State == nil || !ins.State.Running {
 		err = dockerClient.ContainerStart(ctx, userConfig.ContainerId, types.ContainerStartOptions{})
 		if err != nil {
@@ -128,21 +128,21 @@ func (s *Shell) Execute(cmd []string) error {
 
 	useTty := in.IsTty() // Detect if this is necessary?
 	execCreate, err := dockerClient.ContainerExecCreate(ctx, userConfig.ContainerId, types.ExecConfig{
+		Tty:  useTty,
+		User: userConfig.User,
+		Cmd:  cmd,
+		Env:  buildShellEnv(),
+
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
-		Tty:          useTty,
-		User:         userConfig.User,
-		Cmd:          cmd,
-		Env:          buildShellEnv(),
 	})
 	if err != nil {
 		return err
 	}
 
-	conn, err := dockerClient.ContainerExecAttach(ctx, execCreate.ID, types.ExecConfig{
-		Tty:    useTty,
-		Detach: false,
+	conn, err := dockerClient.ContainerExecAttach(ctx, execCreate.ID, types.ExecStartCheck{
+		Tty: useTty,
 	})
 	if err != nil {
 		return err
@@ -150,7 +150,8 @@ func (s *Shell) Execute(cmd []string) error {
 	defer conn.Close()
 
 	// pipe os.stdin to the connection
-	errCh := promise.Go(func() error {
+	errCh := make(chan error, 1)
+	go func() {
 		streamer := hijackedIOStreamer{
 			inputStream:  in,
 			outputStream: out,
@@ -162,8 +163,9 @@ func (s *Shell) Execute(cmd []string) error {
 			in.SetRawMode()
 			defer in.RestoreTerminal()
 		}
-		return streamer.stream(ctx)
-	})
+
+		errCh <- streamer.stream(ctx)
+	}()
 
 	if useTty && in.IsTerminal() {
 		if err := MonitorTtySize(ctx, dockerClient, out, execCreate.ID, true); err != nil {

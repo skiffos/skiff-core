@@ -1,16 +1,16 @@
-package dockerfile
+package dockerfile // import "github.com/docker/docker/builder/dockerfile"
 
 import (
 	"fmt"
 	"io"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder"
 	containerpkg "github.com/docker/docker/container"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
 
@@ -102,7 +102,7 @@ func (c *containerManager) Run(ctx context.Context, cID string, stdout, stderr i
 
 func logCancellationError(cancelErrCh chan error, msg string) {
 	if cancelErr := <-cancelErrCh; cancelErr != nil {
-		logrus.Debugf("Build cancelled (%v): ", cancelErr, msg)
+		logrus.Debugf("Build cancelled (%v): %s", cancelErr, msg)
 	}
 }
 

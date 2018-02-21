@@ -1,4 +1,4 @@
-package stream
+package stream // import "github.com/docker/docker/container/stream"
 
 import (
 	"io"
@@ -6,9 +6,9 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/pkg/promise"
+	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/term"
+	"github.com/sirupsen/logrus"
 )
 
 var defaultEscapeSequence = []byte{16, 17} // ctrl-p, ctrl-q
@@ -57,7 +57,7 @@ func (c *Config) AttachStreams(cfg *AttachConfig) {
 }
 
 // CopyStreams starts goroutines to copy data in and out to/from the container
-func (c *Config) CopyStreams(ctx context.Context, cfg *AttachConfig) chan error {
+func (c *Config) CopyStreams(ctx context.Context, cfg *AttachConfig) <-chan error {
 	var (
 		wg     sync.WaitGroup
 		errors = make(chan error, 3)
@@ -86,7 +86,7 @@ func (c *Config) CopyStreams(ctx context.Context, cfg *AttachConfig) chan error 
 		if cfg.TTY {
 			_, err = copyEscapable(cfg.CStdin, cfg.Stdin, cfg.DetachKeys)
 		} else {
-			_, err = io.Copy(cfg.CStdin, cfg.Stdin)
+			_, err = pools.Copy(cfg.CStdin, cfg.Stdin)
 		}
 		if err == io.ErrClosedPipe {
 			err = nil
@@ -116,7 +116,7 @@ func (c *Config) CopyStreams(ctx context.Context, cfg *AttachConfig) chan error 
 		}
 
 		logrus.Debugf("attach: %s: begin", name)
-		_, err := io.Copy(stream, streamPipe)
+		_, err := pools.Copy(stream, streamPipe)
 		if err == io.ErrClosedPipe {
 			err = nil
 		}
@@ -136,35 +136,42 @@ func (c *Config) CopyStreams(ctx context.Context, cfg *AttachConfig) chan error 
 	go attachStream("stdout", cfg.Stdout, cfg.CStdout)
 	go attachStream("stderr", cfg.Stderr, cfg.CStderr)
 
-	return promise.Go(func() error {
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(errs)
+		errs <- func() error {
+			done := make(chan struct{})
+			go func() {
+				wg.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-ctx.Done():
+				// close all pipes
+				if cfg.CStdin != nil {
+					cfg.CStdin.Close()
+				}
+				if cfg.CStdout != nil {
+					cfg.CStdout.Close()
+				}
+				if cfg.CStderr != nil {
+					cfg.CStderr.Close()
+				}
+				<-done
+			}
+			close(errors)
+			for err := range errors {
+				if err != nil {
+					return err
+				}
+			}
+			return nil
 		}()
-		select {
-		case <-done:
-		case <-ctx.Done():
-			// close all pipes
-			if cfg.CStdin != nil {
-				cfg.CStdin.Close()
-			}
-			if cfg.CStdout != nil {
-				cfg.CStdout.Close()
-			}
-			if cfg.CStderr != nil {
-				cfg.CStderr.Close()
-			}
-			<-done
-		}
-		close(errors)
-		for err := range errors {
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	}()
+
+	return errs
 }
 
 func copyEscapable(dst io.Writer, src io.ReadCloser, keys []byte) (written int64, err error) {
@@ -174,5 +181,5 @@ func copyEscapable(dst io.Writer, src io.ReadCloser, keys []byte) (written int64
 	pr := term.NewEscapeProxy(src, keys)
 	defer src.Close()
 
-	return io.Copy(dst, pr)
+	return pools.Copy(dst, pr)
 }

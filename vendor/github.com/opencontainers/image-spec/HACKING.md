@@ -8,8 +8,8 @@ This guide contains instructions for building artifacts contained in this reposi
 
 This spec includes several Go packages, and a command line tool considered to be a reference implementation of the OCI image specification.
 
-Prerequsites:
-* Go >=1.5
+Prerequisites:
+* Go - current release only, earlier releases are not supported
 * make
 
 The following make targets are relevant for any work involving the Go packages.
@@ -33,20 +33,13 @@ $ make test
 $ make validate-examples
 ```
 
-### OCI image tool
-
-This target builds the `oci-image-tool` binary.
-
-Invocation:
-```
-$ make oci-image-tool
-```
-
 ### Virtual schema http/FileSystem
 
-The `oci-image-tool` uses a virtual [http/FileSystem](https://golang.org/pkg/net/http/#FileSystem) to load the JSON schema files for validating OCI images and/or manifests. The virtual file system is generated using the `esc` tool and compiled into the `oci-image-tool` binary so the JSON schema files don't have to be distributed along with the binary.
+The `schema` validator uses a virtual [http/FileSystem](https://golang.org/pkg/net/http/#FileSystem) to load the JSON schema files for validating OCI images and/or manifests.
+The virtual filesystem is generated using the `esc` tool and compiled into consumers of the `schema` package so the JSON schema files don't have to be distributed along with and consumer binaries.
 
-Whenever changes are being done in any of the `schema/*.json` files, one must refresh the generated virtual file system. Otherwise schema changes will not be visible inside the `oci-image-tool`.
+Whenever changes are being done in any of the `schema/*.json` files, one must refresh the generated virtual filesystem.
+Otherwise schema changes will not be visible inside `schema` consumers.
 
 Prerequisites:
 * [esc](https://github.com/mjibson/esc)
@@ -61,7 +54,7 @@ $ make schema-fs
 This target auto-formats all JSON files in the `schema` directory using the `jq` tool.
 
 Prerequisites:
-* [jq](https://stedolan.github.io/jq/)
+* [jq](https://stedolan.github.io/jq/) >=1.5
 
 Invocation:
 ```
@@ -87,19 +80,6 @@ This target checks if the source code includes necessary headers.
 Invocation:
 ```
 $ make check-license
-```
-
-### Update vendored dependencies
-
-This target updates all vendored depencies to their newest available versions. The `glide` tools is being used for the actual management and `glide-vc` tool is being used for stripping down the vendor directory size.
-
-Prerequisites:
-* [glide](https://github.com/Masterminds/glide)
-* [glide-vc](https://github.com/sgotti/glide-vc)
-
-Invocation:
-```
-$ make update-deps
 ```
 
 ### Clean build artifacts

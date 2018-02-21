@@ -1,4 +1,4 @@
-package parser
+package parser // import "github.com/docker/docker/builder/dockerfile/parser"
 
 // line parsers are dispatch calls that parse a single unit of text into a
 // Node object which contains the whole statement. Dockerfiles have varied
@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	errDockerfileNotStringArray = errors.New("When using JSON array syntax, arrays must be comprised of strings only.")
+	errDockerfileNotStringArray = errors.New("when using JSON array syntax, arrays must be comprised of strings only")
 )
 
 const (

@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/src-d/go-git-fixtures"
 	"gopkg.in/src-d/go-git.v4/plumbing"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
 	"gopkg.in/src-d/go-git.v4/storage/memory"
 
 	. "gopkg.in/check.v1"
+	"gopkg.in/src-d/go-git-fixtures.v3"
 )
 
 type ReferencesSuite struct {
@@ -292,7 +292,7 @@ func (s *ReferencesSuite) TestObjectNotFoundError(c *C) {
 	h1 := plumbing.NewHash("af2d6a6954d532f8ffb47615169c8fdf9d383a1a")
 	hParent := plumbing.NewHash("1669dce138d9b841a518c64b10914d88f5e488ea")
 
-	url := fixtures.ByURL("https://github.com/git-fixtures/basic.git").One().DotGit().Base()
+	url := fixtures.ByURL("https://github.com/git-fixtures/basic.git").One().DotGit().Root()
 	storer := memory.NewStorage()
 	r, err := Clone(storer, nil, &CloneOptions{
 		URL: url,

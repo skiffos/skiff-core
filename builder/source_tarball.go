@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 // fetchSourceTarball tries to download (if a URL) and extract a tarball/zip archive.
