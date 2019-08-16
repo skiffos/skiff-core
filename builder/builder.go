@@ -3,6 +3,7 @@ package builder
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -17,8 +18,9 @@ import (
 
 // Builder manages building images.
 type Builder struct {
-	lib    *library.LibraryResolver
-	config *config.ConfigImageBuild
+	lib          *library.LibraryResolver
+	config       *config.ConfigImageBuild
+	outputStream io.Writer
 }
 
 // NewBuilder creates a Builder.
@@ -28,6 +30,11 @@ func NewBuilder(config *config.ConfigImageBuild) (*Builder, error) {
 		return nil, err
 	}
 	return &Builder{config: config, lib: lib}, nil
+}
+
+// SetOutputStream sets the output stream.
+func (b *Builder) SetOutputStream(s io.Writer) {
+	b.outputStream = s
 }
 
 // Close the builder to release the resources it's using.
@@ -75,6 +82,7 @@ func (b *Builder) build(buildPath string) error {
 	}
 
 	bldr := sbbuilder.NewBuilder(stk, dockerClient)
+	bldr.SetOutputStream(b.outputStream)
 	res := make(chan error)
 	go func() {
 		res <- bldr.Build()

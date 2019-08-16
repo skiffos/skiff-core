@@ -24,6 +24,7 @@ import (
 type Builder struct {
 	dockerClient client.APIClient
 	stack        *stack.ImageStack
+	outputStream io.Writer
 }
 
 // NewBuilder creates a new builder.
@@ -31,7 +32,13 @@ func NewBuilder(stack *stack.ImageStack, dockerClient client.APIClient) *Builder
 	return &Builder{
 		stack:        stack,
 		dockerClient: dockerClient,
+		outputStream: os.Stdout,
 	}
+}
+
+// SetOutputStream sets the output stream.
+func (b *Builder) SetOutputStream(s io.Writer) {
+	b.outputStream = s
 }
 
 // nopCloser wraps readers without a Close()
@@ -42,19 +49,38 @@ type nopCloser struct {
 func (nopCloser) Close() error { return nil }
 
 func (b *Builder) pullImage(baseRef string) error {
-	isTerminal := terminal.IsTerminal(int(os.Stdout.Fd()))
+	isTerminal := false
+	var outFd uintptr
+	if b.outputStream == os.Stdout {
+		outFd = os.Stdout.Fd()
+		isTerminal = terminal.IsTerminal(int(outFd))
+	}
+
 	log.WithField("ref", baseRef).Debug("Pulling")
 	rc, err := b.dockerClient.ImagePull(context.Background(), baseRef, types.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("Unable to pull image: %v", err)
 	}
 	defer rc.Close()
-	return jsonmessage.DisplayJSONMessagesStream(rc, os.Stdout, os.Stdout.Fd(), isTerminal, nil)
+
+	return jsonmessage.DisplayJSONMessagesStream(
+		rc,
+		b.outputStream,
+		outFd,
+		isTerminal,
+		nil,
+	)
 }
 
 // build builds the dockerfile in a directory.
 func (b *Builder) dockerBuild(dir string, dockerfileSrc string, reference string) error {
-	isTerminal := terminal.IsTerminal(int(os.Stdout.Fd()))
+	isTerminal := false
+	var outFd uintptr
+	if b.outputStream == os.Stdout {
+		outFd = os.Stdout.Fd()
+		isTerminal = terminal.IsTerminal(int(outFd))
+	}
+
 	relDockerfile := "Dockerfile"
 	excludes, err := build.ReadDockerignore(dir)
 	if err != nil {
@@ -91,7 +117,7 @@ func (b *Builder) dockerBuild(dir string, dockerfileSrc string, reference string
 	}
 	defer response.Body.Close()
 
-	return jsonmessage.DisplayJSONMessagesStream(response.Body, os.Stdout, os.Stdout.Fd(), isTerminal, nil)
+	return jsonmessage.DisplayJSONMessagesStream(response.Body, b.outputStream, outFd, isTerminal, nil)
 }
 
 // Build traverses the stack and builds the images.

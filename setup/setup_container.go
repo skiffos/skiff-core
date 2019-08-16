@@ -3,19 +3,22 @@ package setup
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/paralin/skiff-core/config"
+	"github.com/paralin/skiff-core/util/multiwriter"
+	log "github.com/sirupsen/logrus"
 )
 
 // ContainerSetup sets up a container.
 type ContainerSetup struct {
 	config *config.ConfigContainer
 	waiter ImageWaiter
+	logger multiwriter.MultiWriter
 
 	wg          sync.WaitGroup
 	err         error
@@ -99,7 +102,7 @@ func (cs *ContainerSetup) Execute() (execError error) {
 	}
 
 	// wait for the image to be ready
-	if err := cs.waiter.WaitForImage(config.Image); err != nil {
+	if err := cs.waiter.WaitForImage(config.Image, &cs.logger); err != nil {
 		return err
 	}
 
@@ -129,7 +132,13 @@ func (cs *ContainerSetup) Execute() (execError error) {
 
 	// create the container
 	cconf := cs.buildDockerContainer()
-	res, err := dockerClient.ContainerCreate(context.Background(), cconf.Config, cconf.HostConfig, cconf.NetworkingConfig, cconf.Name)
+	res, err := dockerClient.ContainerCreate(
+		context.Background(),
+		cconf.Config,
+		cconf.HostConfig,
+		cconf.NetworkingConfig,
+		cconf.Name,
+	)
 	if err != nil {
 		return err
 	}
@@ -139,17 +148,26 @@ func (cs *ContainerSetup) Execute() (execError error) {
 	}
 	cs.containerId = res.ID
 
+	cs.logger.Write([]byte("Container created with ID: "))
+	cs.logger.Write([]byte(res.ID))
+	cs.logger.Write([]byte("\n"))
 	return nil
 }
 
 // Wait waits for Execute() to finish.
-func (i *ContainerSetup) Wait() error {
+func (i *ContainerSetup) Wait(log io.Writer) error {
+	i.logger.AddWriter(log)
+	defer i.logger.RmWriter(log)
+
 	i.wg.Wait()
 	return i.err
 }
 
 // WaitWithId waits for Execute() to finish and returns the container ID.
-func (i *ContainerSetup) WaitWithId() (string, error) {
+func (i *ContainerSetup) WaitWithId(outw io.Writer) (string, error) {
+	i.logger.AddWriter(outw)
+	defer i.logger.RmWriter(outw)
+
 	i.wg.Wait()
 	return i.containerId, i.err
 }

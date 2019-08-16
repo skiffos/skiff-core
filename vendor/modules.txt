@@ -71,6 +71,12 @@ github.com/emirpasic/gods/utils
 github.com/emirpasic/gods/lists
 # github.com/gogo/protobuf v1.2.1
 github.com/gogo/protobuf/proto
+# github.com/hpcloud/tail v1.0.0
+github.com/hpcloud/tail
+github.com/hpcloud/tail/ratelimiter
+github.com/hpcloud/tail/util
+github.com/hpcloud/tail/watch
+github.com/hpcloud/tail/winfile
 # github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99
 github.com/jbenet/go-context/io
 # github.com/kevinburke/ssh_config v0.0.0-20190725054713-01f96b0aa0cd
@@ -92,7 +98,7 @@ github.com/opencontainers/image-spec/specs-go
 # github.com/opencontainers/runc v1.0.0-rc8
 github.com/opencontainers/runc/libcontainer/system
 github.com/opencontainers/runc/libcontainer/user
-# github.com/paralin/scratchbuild v0.0.0-20190816191839-75fd33db42d6
+# github.com/paralin/scratchbuild v0.0.0-20190816194939-0cfa708351d1
 github.com/paralin/scratchbuild/arch
 github.com/paralin/scratchbuild/builder
 github.com/paralin/scratchbuild/library
@@ -145,6 +151,8 @@ golang.org/x/sys/windows
 golang.org/x/sys/cpu
 # golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
 golang.org/x/time/rate
+# gopkg.in/fsnotify.v1 v1.4.7
+gopkg.in/fsnotify.v1
 # gopkg.in/src-d/go-billy.v4 v4.3.2
 gopkg.in/src-d/go-billy.v4
 gopkg.in/src-d/go-billy.v4/osfs
@@ -193,6 +201,8 @@ gopkg.in/src-d/go-git.v4/storage/filesystem/dotgit
 gopkg.in/src-d/go-git.v4/utils/merkletrie/internal/frame
 gopkg.in/src-d/go-git.v4/plumbing/transport/internal/common
 gopkg.in/src-d/go-git.v4/plumbing/transport/server
+# gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7
+gopkg.in/tomb.v1
 # gopkg.in/warnings.v0 v0.1.2
 gopkg.in/warnings.v0
 # gopkg.in/yaml.v2 v2.2.2

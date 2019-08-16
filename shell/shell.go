@@ -2,8 +2,8 @@ package shell
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path"
@@ -12,7 +12,9 @@ import (
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/hpcloud/tail"
 	"github.com/paralin/skiff-core/config"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -53,21 +55,67 @@ func (s *Shell) Execute(cmd []string) error {
 		return err
 	}
 
+	in := NewInStream(os.Stdin)
+	out := NewOutStream(os.Stdout)
+	errOut := NewOutStream(os.Stderr)
+	useTty := in.IsTty() // Detect if this is necessary?
+
 	configPath := path.Join(s.homeDir, config.UserConfigFile)
-	if _, err := os.Stat(configPath); err != nil {
-		if os.IsNotExist(err) {
-			log.Debug("Container setup not complete, try again later.")
+	logPath := path.Join(s.homeDir, config.UserLogFile)
+	completeCh := make(chan *config.ConfigUserShell, 1)
+	checkFiles := func() {
+		var err error
+		userConfig, err := s.loadUserConfig(configPath)
+		if err != nil || userConfig == nil || userConfig.ContainerId == "" {
+			userConfig = nil
 		}
-		return err
+		if userConfig != nil {
+			select {
+			case completeCh <- userConfig:
+			default:
+			}
+			return
+		}
 	}
 
-	userConfig, err := s.loadUserConfig(configPath)
-	if err != nil {
-		return err
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	defer ctxCancel()
+
+	var userConfig *config.ConfigUserShell
+	checkFiles()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case userConfig = <-completeCh:
+	default:
 	}
 
-	if userConfig.ContainerId == "" {
-		return errors.New("Container ID not set, setup failed.")
+	if userConfig == nil {
+		errOut.Write([]byte("Container setup in progress:\n"))
+
+		logTail, err := tail.TailFile(logPath, tail.Config{
+			ReOpen: true,
+			Follow: true,
+		})
+		if err != nil {
+			return errors.Wrap(err, "tail setup logs")
+		}
+		defer logTail.Cleanup()
+
+		pollTimer := time.NewTicker(time.Millisecond * 500)
+		for userConfig == nil {
+			select {
+			case <-ctx.Done():
+				pollTimer.Stop()
+				return ctx.Err()
+			case <-pollTimer.C:
+				checkFiles()
+			case line := <-logTail.Lines:
+				errOut.Write([]byte(line.Text + "\n"))
+			case userConfig = <-completeCh:
+			}
+		}
+		pollTimer.Stop()
 	}
 
 	if len(cmd) == 0 {
@@ -77,9 +125,6 @@ func (s *Shell) Execute(cmd []string) error {
 		cmd = []string{"/bin/sh"}
 	}
 
-	ctx, ctxCancel := context.WithCancel(context.Background())
-	defer ctxCancel()
-
 	// Probe the state of the container.
 	ins, err := dockerClient.ContainerInspect(ctx, userConfig.ContainerId)
 	if err != nil {
@@ -87,6 +132,7 @@ func (s *Shell) Execute(cmd []string) error {
 	}
 
 	if ins.State == nil || !ins.State.Running {
+		errOut.Write([]byte("Starting container " + userConfig.ContainerId + "...\n"))
 		err = dockerClient.ContainerStart(ctx, userConfig.ContainerId, types.ContainerStartOptions{})
 		if err != nil {
 			return fmt.Errorf("Unable to start container: %s", err.Error())
@@ -107,8 +153,18 @@ func (s *Shell) Execute(cmd []string) error {
 			if ctr.State == nil {
 				continue
 			}
-			if ctr.State.Dead {
-				return fmt.Errorf("Container failed to start with exit code: %d", ctr.State.ExitCode)
+			if ctr.State.Dead ||
+				(!ctr.State.Running && !ctr.State.Restarting && ctr.State.Status == "exited") {
+				err = fmt.Errorf("Container failed to start with exit code: %d", ctr.State.ExitCode)
+				logsCloser, lerr := dockerClient.ContainerLogs(ctx, userConfig.ContainerId, types.ContainerLogsOptions{
+					ShowStderr: true,
+					ShowStdout: true,
+				})
+				if lerr == nil {
+					io.Copy(errOut, logsCloser)
+					logsCloser.Close()
+				}
+				return err
 			}
 
 			health := ctr.State.Health
@@ -122,11 +178,6 @@ func (s *Shell) Execute(cmd []string) error {
 		}
 	}
 
-	in := NewInStream(os.Stdin)
-	out := NewOutStream(os.Stdout)
-	errOut := NewOutStream(os.Stderr)
-
-	useTty := in.IsTty() // Detect if this is necessary?
 	execCreate, err := dockerClient.ContainerExecCreate(ctx, userConfig.ContainerId, types.ExecConfig{
 		Tty:  useTty,
 		User: userConfig.User,

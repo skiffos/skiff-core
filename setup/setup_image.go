@@ -3,20 +3,22 @@ package setup
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/paralin/skiff-core/builder"
 	"github.com/paralin/skiff-core/config"
-	"golang.org/x/crypto/ssh/terminal"
+	"github.com/paralin/skiff-core/util/multiwriter"
+	log "github.com/sirupsen/logrus"
 )
 
 // ImageSetup is responsible for setting up an image.
 type ImageSetup struct {
+	logger multiwriter.MultiWriter
 	config *config.ConfigImage
 
 	err error
@@ -25,7 +27,9 @@ type ImageSetup struct {
 
 // NewImageSetup builds a new ImageSetup.
 func NewImageSetup(conf *config.ConfigImage) *ImageSetup {
-	return &ImageSetup{config: conf}
+	s := &ImageSetup{config: conf}
+	s.logger.AddWriter(os.Stdout)
+	return s
 }
 
 // checkImageExists checks if an image exists on the machine.
@@ -47,7 +51,7 @@ func (i *ImageSetup) checkImageExists(dockerClient *client.Client, ref string) (
 
 // pull attempts to pull.
 func (i *ImageSetup) pull(dockerClient *client.Client) (pullError error) {
-	isTerminal := terminal.IsTerminal(int(os.Stdout.Fd()))
+	isTerminal := false
 	conf := i.config.Pull
 	ref := conf.ImageName()
 	if conf.Registry != "" {
@@ -62,7 +66,7 @@ func (i *ImageSetup) pull(dockerClient *client.Client) (pullError error) {
 	if err != nil {
 		return err
 	}
-	return jsonmessage.DisplayJSONMessagesStream(rc, os.Stdout, os.Stdout.Fd(), isTerminal, nil)
+	return jsonmessage.DisplayJSONMessagesStream(rc, &i.logger, 0, isTerminal, nil)
 }
 
 // build attempts to build the image.
@@ -79,6 +83,8 @@ func (i *ImageSetup) build() (buildError error) {
 		return err
 	}
 	defer bldr.Close()
+
+	bldr.SetOutputStream(&i.logger)
 
 	return bldr.Build()
 }
@@ -141,7 +147,10 @@ func (i *ImageSetup) Execute() (exError error) {
 }
 
 // Wait waits for Execute() to finish.
-func (i *ImageSetup) Wait() error {
+func (i *ImageSetup) Wait(logger io.Writer) error {
+	i.logger.AddWriter(logger)
+	defer i.logger.RmWriter(logger)
+
 	i.wg.Wait()
 	return i.err
 }

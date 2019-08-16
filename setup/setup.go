@@ -2,10 +2,11 @@ package setup
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/paralin/skiff-core/config"
+	log "github.com/sirupsen/logrus"
 )
 
 // Setup is an instance of a setup process.
@@ -21,7 +22,7 @@ type SetupJob interface {
 	// Execute is a goroutine to execute the job
 	Execute() error
 	// Wait waits for the job to exit.
-	Wait() error
+	Wait(log io.Writer) error
 }
 
 // ensureSlashPrefix ensures a string has a / prefix
@@ -33,17 +34,17 @@ func ensureSlashPrefix(orig string) string {
 }
 
 // WaitForImage waits for a image ref to be ready.
-func (s *Setup) WaitForImage(ref string) error {
+func (s *Setup) WaitForImage(ref string, logger io.Writer) error {
 	if setup, ok := s.imageSetups[ref]; ok {
-		return setup.Wait()
+		return setup.Wait(logger)
 	}
 	return fmt.Errorf("No image %s declared!", ref)
 }
 
 // WaitForContainer waits for a container to be ready.
-func (s *Setup) WaitForContainer(name string) (string, error) {
+func (s *Setup) WaitForContainer(name string, logOut io.Writer) (string, error) {
 	if setup, ok := s.containerSetups[name]; ok {
-		return setup.WaitWithId()
+		return setup.WaitWithId(logOut)
 	}
 	return "", fmt.Errorf("No container %s declared!", name)
 }

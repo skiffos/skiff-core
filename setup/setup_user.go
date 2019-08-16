@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/paralin/skiff-core/config"
+	log "github.com/sirupsen/logrus"
 )
 
 // UserSetup sets up a container.
@@ -183,11 +183,21 @@ func (cs *UserSetup) Execute() (execError error) {
 	}
 
 	f.Sync()
+	f.Close()
 	if err := os.Chown(authorizedKeysPath, uid, gid); err != nil {
 		return err
 	}
 
-	containerId, err := cs.waiter.WaitForContainer(cs.config.Container)
+	setupPath := path.Join(euser.HomeDir, config.UserLogFile)
+	logFile, err := os.OpenFile(setupPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+	logFile.Sync()
+	logFile.Chown(uid, gid)
+
+	containerId, err := cs.waiter.WaitForContainer(cs.config.Container, logFile)
 	if err != nil {
 		return err
 	}
@@ -213,7 +223,7 @@ func (cs *UserSetup) Execute() (execError error) {
 }
 
 // Wait waits for Execute() to finish.
-func (i *UserSetup) Wait() error {
+func (i *UserSetup) Wait(io.Writer) error {
 	i.wg.Wait()
 	return i.err
 }
