@@ -8,10 +8,10 @@ import (
 	"path"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/docker/distribution/reference"
-	dfparser "github.com/docker/docker/builder/dockerfile/parser"
+	dfparser "github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/paralin/scratchbuild/arch"
+	log "github.com/sirupsen/logrus"
 )
 
 // ImageStack represents an image as a stack of layers.

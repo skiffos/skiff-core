@@ -3,6 +3,8 @@ package cli
 import (
 	"errors"
 	"flag"
+	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"syscall"
@@ -39,11 +41,13 @@ func (c *Context) NumFlags() int {
 
 // Set sets a context flag to a value.
 func (c *Context) Set(name, value string) error {
+	c.setFlags = nil
 	return c.flagSet.Set(name, value)
 }
 
 // GlobalSet sets a context flag to a value on the global flagset
 func (c *Context) GlobalSet(name, value string) error {
+	globalContext(c).setFlags = nil
 	return globalContext(c).flagSet.Set(name, value)
 }
 
@@ -71,7 +75,7 @@ func (c *Context) IsSet(name string) bool {
 		// change in version 2 to add `IsSet` to the Flag interface to push the
 		// responsibility closer to where the information required to determine
 		// whether a flag is set by non-standard means such as environment
-		// variables is avaliable.
+		// variables is available.
 		//
 		// See https://github.com/urfave/cli/issues/294 for additional discussion
 		flags := c.Command.Flags
@@ -91,18 +95,26 @@ func (c *Context) IsSet(name string) bool {
 					val = val.Elem()
 				}
 
-				envVarValue := val.FieldByName("EnvVar")
-				if !envVarValue.IsValid() {
-					return
+				filePathValue := val.FieldByName("FilePath")
+				if filePathValue.IsValid() {
+					eachName(filePathValue.String(), func(filePath string) {
+						if _, err := os.Stat(filePath); err == nil {
+							c.setFlags[name] = true
+							return
+						}
+					})
 				}
 
-				eachName(envVarValue.String(), func(envVar string) {
-					envVar = strings.TrimSpace(envVar)
-					if _, ok := syscall.Getenv(envVar); ok {
-						c.setFlags[name] = true
-						return
-					}
-				})
+				envVarValue := val.FieldByName("EnvVar")
+				if envVarValue.IsValid() {
+					eachName(envVarValue.String(), func(envVar string) {
+						envVar = strings.TrimSpace(envVar)
+						if _, ok := syscall.Getenv(envVar); ok {
+							c.setFlags[name] = true
+							return
+						}
+					})
+				}
 			})
 		}
 	}
@@ -272,5 +284,45 @@ func normalizeFlags(flags []Flag, set *flag.FlagSet) error {
 			}
 		}
 	}
+	return nil
+}
+
+type requiredFlagsErr interface {
+	error
+	getMissingFlags() []string
+}
+
+type errRequiredFlags struct {
+	missingFlags []string
+}
+
+func (e *errRequiredFlags) Error() string {
+	numberOfMissingFlags := len(e.missingFlags)
+	if numberOfMissingFlags == 1 {
+		return fmt.Sprintf("Required flag %q not set", e.missingFlags[0])
+	}
+	joinedMissingFlags := strings.Join(e.missingFlags, ", ")
+	return fmt.Sprintf("Required flags %q not set", joinedMissingFlags)
+}
+
+func (e *errRequiredFlags) getMissingFlags() []string {
+	return e.missingFlags
+}
+
+func checkRequiredFlags(flags []Flag, context *Context) requiredFlagsErr {
+	var missingFlags []string
+	for _, f := range flags {
+		if rf, ok := f.(RequiredFlag); ok && rf.IsRequired() {
+			key := strings.Split(f.GetName(), ",")[0]
+			if !context.IsSet(key) {
+				missingFlags = append(missingFlags, key)
+			}
+		}
+	}
+
+	if len(missingFlags) != 0 {
+		return &errRequiredFlags{missingFlags: missingFlags}
+	}
+
 	return nil
 }

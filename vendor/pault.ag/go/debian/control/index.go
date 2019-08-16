@@ -18,10 +18,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE. }}} */
 
-package control
+package control // import "pault.ag/go/debian/control"
 
 import (
 	"bufio"
+	"strings"
 
 	"pault.ag/go/debian/dependency"
 	"pault.ag/go/debian/version"
@@ -84,6 +85,24 @@ func (index *BinaryIndex) GetPreDepends() dependency.Dependency {
 	return index.getOptionalDependencyField("Pre-Depends")
 }
 
+// Parse the Built-Depends relation on this package.
+func (index *BinaryIndex) GetBuiltUsing() dependency.Dependency {
+	return index.getOptionalDependencyField("Built-Using")
+}
+
+// SourcePackage returns the Debian source package name from which this binary
+// Package was built, coping with the special cases Source == Package (skipped
+// for efficiency) and binNMUs (Source contains version number).
+func (index *BinaryIndex) SourcePackage() string {
+	if index.Source == "" {
+		return index.Package
+	}
+	if !strings.Contains(index.Source, " ") {
+		return index.Source
+	}
+	return strings.Split(index.Source, " ")[0]
+}
+
 // BestChecksums can be included in a struct instead of e.g. ChecksumsSha256.
 //
 // BestChecksums uses cryptographically secure checksums, so that application
@@ -138,11 +157,13 @@ type SourceIndex struct {
 
 	StandardsVersion string
 	Format           string
-	Files            []string `delim:"\n"`
-	VcsBrowser       string   `control:"Vcs-Browser"`
-	VcsGit           string   `control:"Vcs-Git"`
-	VcsSvn           string   `control:"Vcs-Svn"`
-	VcsBzr           string   `control:"Vcs-Bzr"`
+	Files            []MD5FileHash    `delim:"\n" strip:"\n\r\t "`
+	VcsBrowser       string           `control:"Vcs-Browser"`
+	VcsGit           string           `control:"Vcs-Git"`
+	VcsSvn           string           `control:"Vcs-Svn"`
+	VcsBzr           string           `control:"Vcs-Bzr"`
+	ChecksumsSha1    []SHA1FileHash   `control:"Checksums-Sha1" delim:"\n" strip:"\n\r\t "`
+	ChecksumsSha256  []SHA256FileHash `control:"Checksums-Sha256" delim:"\n" strip:"\n\r\t "`
 	Homepage         string
 	Directory        string
 	Priority         string

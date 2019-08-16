@@ -18,7 +18,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE. }}} */
 
-package control
+package control // import "pault.ag/go/debian/control"
 
 import (
 	"bufio"
@@ -43,7 +43,7 @@ type Paragraph struct {
 
 // Paragraph Helpers {{{
 
-func (p Paragraph) Set(key, value string) {
+func (p *Paragraph) Set(key, value string) {
 	if _, found := p.Values[key]; found {
 		/* We've got the key */
 		p.Values[key] = value
@@ -55,7 +55,7 @@ func (p Paragraph) Set(key, value string) {
 	p.Values[key] = value
 }
 
-func (p Paragraph) WriteTo(out io.Writer) error {
+func (p *Paragraph) WriteTo(out io.Writer) error {
 	for _, key := range p.Order {
 		value := p.Values[key]
 
@@ -71,7 +71,7 @@ func (p Paragraph) WriteTo(out io.Writer) error {
 	return nil
 }
 
-func (p Paragraph) Update(other Paragraph) Paragraph {
+func (p *Paragraph) Update(other Paragraph) Paragraph {
 	ret := Paragraph{
 		Order:  []string{},
 		Values: map[string]string{},
@@ -286,6 +286,10 @@ func (p *ParagraphReader) decodeClearsig(keyring *openpgp.EntityList) error {
 	 * future, in which case, we should likely set reader back to
 	 * the remainder, and return that out to put through another
 	 * ParagraphReader, since it may have a different signer. */
+
+	if block == nil {
+		return fmt.Errorf("Invalid clearsigned input")
+	}
 
 	if keyring == nil {
 		/* As a special case, if the keyring is nil, we can go ahead

@@ -18,7 +18,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE. }}} */
 
-package control
+package control // import "pault.ag/go/debian/control"
 
 import (
 	"bytes"
@@ -125,7 +125,7 @@ func (c *FileHash) unmarshalControl(algorithm, data string) error {
 	var err error
 	c.Algorithm = algorithm
 	vals := strings.Fields(data)
-	if len(data) < 4 {
+	if len(vals) < 3 {
 		return fmt.Errorf("Error: Unknown Debian Hash line: '%s'", data)
 	}
 

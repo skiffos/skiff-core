@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -15,8 +16,11 @@ import (
 )
 
 var (
-	GitCommitRegex = regexp.MustCompile(`^[0-9a-f]{1,40}$`)
+	GitCommitRegex = regexp.MustCompile(`^[0-9a-f]{1,64}$`)
 	GitFetchRegex  = regexp.MustCompile(`^refs/(heads|tags)/[^*?:]+$`)
+
+	// https://github.com/docker/distribution/blob/v2.7.1/reference/regexp.go#L37
+	ValidTagRegex = regexp.MustCompile(`^\w[\w.-]{0,127}$`)
 )
 
 type Manifest2822 struct {
@@ -38,6 +42,7 @@ type Manifest2822Entry struct {
 	GitFetch  string
 	GitCommit string
 	Directory string
+	File      string
 
 	// architecture-specific versions of the above fields
 	ArchValues map[string]string
@@ -56,6 +61,7 @@ var (
 
 		GitFetch:  "refs/heads/master",
 		Directory: ".",
+		File:      "Dockerfile",
 	}
 )
 
@@ -81,8 +87,16 @@ func (entry Manifest2822Entry) Clone() Manifest2822Entry {
 
 func (entry *Manifest2822Entry) SeedArchValues() {
 	for field, val := range entry.Paragraph.Values {
-		if strings.HasSuffix(field, "-GitRepo") || strings.HasSuffix(field, "-GitFetch") || strings.HasSuffix(field, "-GitCommit") || strings.HasSuffix(field, "-Directory") {
+		if strings.HasSuffix(field, "-GitRepo") || strings.HasSuffix(field, "-GitFetch") || strings.HasSuffix(field, "-GitCommit") || strings.HasSuffix(field, "-Directory") || strings.HasSuffix(field, "-File") {
 			entry.ArchValues[field] = val
+		}
+	}
+}
+func (entry *Manifest2822Entry) CleanDirectoryValues() {
+	entry.Directory = path.Clean(entry.Directory)
+	for field, val := range entry.ArchValues {
+		if strings.HasSuffix(field, "-Directory") && val != "" {
+			entry.ArchValues[field] = path.Clean(val)
 		}
 	}
 }
@@ -118,7 +132,7 @@ func (a Manifest2822Entry) SameBuildArtifacts(b Manifest2822Entry) bool {
 		}
 	}
 
-	return a.ArchitecturesString() == b.ArchitecturesString() && a.GitRepo == b.GitRepo && a.GitFetch == b.GitFetch && a.GitCommit == b.GitCommit && a.Directory == b.Directory && a.ConstraintsString() == b.ConstraintsString()
+	return a.ArchitecturesString() == b.ArchitecturesString() && a.GitRepo == b.GitRepo && a.GitFetch == b.GitFetch && a.GitCommit == b.GitCommit && a.Directory == b.Directory && a.File == b.File && a.ConstraintsString() == b.ConstraintsString()
 }
 
 // returns a list of architecture-specific fields in an Entry
@@ -160,6 +174,9 @@ func (entry Manifest2822Entry) ClearDefaults(defaults Manifest2822Entry) Manifes
 	if entry.Directory == defaults.Directory {
 		entry.Directory = ""
 	}
+	if entry.File == defaults.File {
+		entry.File = ""
+	}
 	for _, key := range defaults.archFields() {
 		if defaults.ArchValues[key] == entry.ArchValues[key] {
 			delete(entry.ArchValues, key)
@@ -196,6 +213,9 @@ func (entry Manifest2822Entry) String() string {
 	}
 	if str := entry.Directory; str != "" {
 		ret = append(ret, "Directory: "+str)
+	}
+	if str := entry.File; str != "" {
+		ret = append(ret, "File: "+str)
 	}
 	for _, key := range entry.archFields() {
 		ret = append(ret, key+": "+entry.ArchValues[key])
@@ -263,6 +283,13 @@ func (entry Manifest2822Entry) ArchDirectory(arch string) string {
 	return entry.Directory
 }
 
+func (entry Manifest2822Entry) ArchFile(arch string) string {
+	if val, ok := entry.ArchValues[arch+"-File"]; ok && val != "" {
+		return val
+	}
+	return entry.File
+}
+
 func (entry Manifest2822Entry) HasTag(tag string) bool {
 	for _, existingTag := range entry.Tags {
 		if tag == existingTag {
@@ -293,20 +320,20 @@ func (entry Manifest2822Entry) HasArchitecture(arch string) bool {
 }
 
 func (manifest Manifest2822) GetTag(tag string) *Manifest2822Entry {
-	for _, entry := range manifest.Entries {
+	for i, entry := range manifest.Entries {
 		if entry.HasTag(tag) {
-			return &entry
+			return &manifest.Entries[i]
 		}
 	}
 	return nil
 }
 
 // GetSharedTag returns a list of entries with the given tag in entry.SharedTags (or the empty list if there are no entries with the given tag).
-func (manifest Manifest2822) GetSharedTag(tag string) []Manifest2822Entry {
-	ret := []Manifest2822Entry{}
-	for _, entry := range manifest.Entries {
+func (manifest Manifest2822) GetSharedTag(tag string) []*Manifest2822Entry {
+	ret := []*Manifest2822Entry{}
+	for i, entry := range manifest.Entries {
 		if entry.HasSharedTag(tag) {
-			ret = append(ret, entry)
+			ret = append(ret, &manifest.Entries[i])
 		}
 	}
 	return ret
@@ -369,7 +396,11 @@ func (manifest *Manifest2822) AddEntry(entry Manifest2822Entry) error {
 	}
 
 	entry.DeduplicateSharedTags()
+	entry.CleanDirectoryValues()
 
+	if invalidTags := entry.InvalidTags(); len(invalidTags) > 0 {
+		return fmt.Errorf("Tags %q has invalid (Shared)Tags: %q", entry.TagsString(), strings.Join(invalidTags, ", "))
+	}
 	if invalidArchitectures := entry.InvalidArchitectures(); len(invalidArchitectures) > 0 {
 		return fmt.Errorf("Tags %q has invalid Architectures: %q", entry.TagsString(), strings.Join(invalidArchitectures, ", "))
 	}
@@ -428,6 +459,16 @@ func (entry Manifest2822Entry) InvalidMaintainers() []string {
 	for _, maintainer := range entry.Maintainers {
 		if !MaintainersRegex.MatchString(maintainer) {
 			invalid = append(invalid, maintainer)
+		}
+	}
+	return invalid
+}
+
+func (entry Manifest2822Entry) InvalidTags() []string {
+	invalid := []string{}
+	for _, tag := range append(append([]string{}, entry.Tags...), entry.SharedTags...) {
+		if !ValidTagRegex.MatchString(tag) {
+			invalid = append(invalid, tag)
 		}
 	}
 	return invalid
