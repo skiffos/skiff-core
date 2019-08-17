@@ -189,7 +189,7 @@ func (cs *UserSetup) Execute() (execError error) {
 	}
 
 	setupPath := path.Join(euser.HomeDir, config.UserLogFile)
-	logFile, err := os.OpenFile(setupPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	logFile, err := os.OpenFile(setupPath, os.O_TRUNC|os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
