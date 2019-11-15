@@ -25,6 +25,7 @@ type Builder struct {
 	dockerClient client.APIClient
 	stack        *stack.ImageStack
 	outputStream io.Writer
+	forceRemove  bool
 }
 
 // NewBuilder creates a new builder.
@@ -33,7 +34,13 @@ func NewBuilder(stack *stack.ImageStack, dockerClient client.APIClient) *Builder
 		stack:        stack,
 		dockerClient: dockerClient,
 		outputStream: os.Stdout,
+		forceRemove:  true,
 	}
+}
+
+// SetForceRemove sets the force remove property.
+func (b *Builder) SetForceRemove(rm bool) {
+	b.forceRemove = rm
 }
 
 // SetOutputStream sets the output stream.
@@ -108,9 +115,10 @@ func (b *Builder) dockerBuild(dir string, dockerfileSrc string, reference string
 	progressOutput := streamformatter.NewProgressOutput(os.Stdout)
 	var body io.Reader = progress.NewProgressReader(buildCtx, progressOutput, 0, "", "Sending build context to Docker daemon")
 	response, err := b.dockerClient.ImageBuild(context.Background(), body, types.ImageBuildOptions{
-		PullParent: false,
-		Dockerfile: relDockerfile,
-		Tags:       []string{reference},
+		PullParent:  false,
+		ForceRemove: b.forceRemove,
+		Dockerfile:  relDockerfile,
+		Tags:        []string{reference},
 	})
 	if err != nil {
 		return err
