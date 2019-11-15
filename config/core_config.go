@@ -175,6 +175,8 @@ type ConfigImageBuild struct {
 	Root string `json:"root,omitempty" yaml:"root,omitempty"`
 	// Dockerfile controls the path to the Dockerfile inside the repository/source.
 	Dockerfile string `json:"dockerfile,omitempty" yaml:"dockerfile,omitempty"`
+	// PreserveIntermediate indicates we should preserve intermediate build containers.
+	PreserveIntermediate bool `json:"preserveIntermediate,omitempty" yaml:"preserveIntermediate,omitempty"`
 }
 
 // ImageName returns the imageName

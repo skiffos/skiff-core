@@ -83,6 +83,7 @@ func (b *Builder) build(buildPath string) error {
 
 	bldr := sbbuilder.NewBuilder(stk, dockerClient)
 	bldr.SetOutputStream(b.outputStream)
+	bldr.SetForceRemove(!b.config.PreserveIntermediate)
 	res := make(chan error)
 	go func() {
 		res <- bldr.Build()
