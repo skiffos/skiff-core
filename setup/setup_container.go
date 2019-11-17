@@ -59,6 +59,11 @@ func (cs *ContainerSetup) buildDockerContainer() *types.ContainerCreateConfig {
 		Tmpfs:       config.TmpFs,
 		Privileged:  config.Privileged,
 	}
+	if rp := config.RestartPolicy; rp != "" {
+		hostConfig.RestartPolicy = container.RestartPolicy{
+			Name: rp,
+		}
+	}
 	res.HostConfig = hostConfig
 	if len(config.Mounts) > 0 {
 		hostConfig.Binds = make([]string, len(config.Mounts))
@@ -151,6 +156,15 @@ func (cs *ContainerSetup) Execute() (execError error) {
 	cs.logger.Write([]byte("Container created with ID: "))
 	cs.logger.Write([]byte(res.ID))
 	cs.logger.Write([]byte("\n"))
+
+	if cs.config.StartAfterCreate {
+		cs.logger.Write([]byte("Starting container" + res.ID + "...\n"))
+		err = dockerClient.ContainerStart(context.Background(), res.ID, types.ContainerStartOptions{})
+		if err != nil {
+			cs.logger.Write([]byte("Could not start container, continuing: " + err.Error() + "\n"))
+		}
+	}
+
 	return nil
 }
 

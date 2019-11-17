@@ -82,6 +82,11 @@ type ConfigContainer struct {
 	DNSSearch []string `json:"dnsSearch,omitempty" yaml:"dnsSearch,omitempty"`
 	// Hosts contains additional hosts used by the container
 	Hosts []string `json:"hosts,omitempty" yaml:"hosts,omitempty"`
+	// RestartPolicy is the restart policy for the container.
+	// Typically uses "always" or "on-failure" or "never"
+	RestartPolicy string `json:"restartPolicy,omitempty" yaml:"restartPolicy,omitempty"`
+	// StartAfterCreate indicates we should start the container immediately after creating it.
+	StartAfterCreate bool `json:"startAfterCreate,omitempty" yaml:"startAfterCreate,omitempty"`
 }
 
 // ConfigContainerEnvironmentVariable configures an environment variable.
