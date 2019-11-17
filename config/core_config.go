@@ -177,6 +177,10 @@ type ConfigImageBuild struct {
 	Dockerfile string `json:"dockerfile,omitempty" yaml:"dockerfile,omitempty"`
 	// PreserveIntermediate indicates we should preserve intermediate build containers.
 	PreserveIntermediate bool `json:"preserveIntermediate,omitempty" yaml:"preserveIntermediate,omitempty"`
+	// ScratchBuild indicates we need to patch the image tree to use arch-specific images.
+	// NOTE: This is deprecated and defaults to false.
+	// The "correct way" is to use Docker manifests and multi-arch images.
+	ScratchBuild bool `json:"scratchBuild,omitempty" yaml:"scratchBuild,omitempty"`
 }
 
 // ImageName returns the imageName

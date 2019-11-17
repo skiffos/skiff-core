@@ -1,35 +1,38 @@
 package builder
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"strings"
 	"time"
 
+	"github.com/docker/cli/cli/command/image/build"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/archive"
+	"github.com/docker/docker/pkg/jsonmessage"
+	"github.com/docker/docker/pkg/progress"
+	"github.com/docker/docker/pkg/streamformatter"
 	sbbuilder "github.com/paralin/scratchbuild/builder"
-	"github.com/paralin/scratchbuild/library"
 	"github.com/paralin/scratchbuild/stack"
 	"github.com/paralin/skiff-core/config"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 // Builder manages building images.
 type Builder struct {
-	lib          *library.LibraryResolver
 	config       *config.ConfigImageBuild
 	outputStream io.Writer
 }
 
 // NewBuilder creates a Builder.
 func NewBuilder(config *config.ConfigImageBuild) (*Builder, error) {
-	lib, err := globalLibraryCache.GetLibrary()
-	if err != nil {
-		return nil, err
-	}
-	return &Builder{config: config, lib: lib}, nil
+	return &Builder{config: config}, nil
 }
 
 // SetOutputStream sets the output stream.
@@ -37,15 +40,8 @@ func (b *Builder) SetOutputStream(s io.Writer) {
 	b.outputStream = s
 }
 
-// Close the builder to release the resources it's using.
-func (b *Builder) Close() {
-	if b.lib == nil {
-		return
-	}
-
-	b.lib = nil
-	globalLibraryCache.Release()
-}
+// Close the builder to release the resources it was using.
+func (b *Builder) Close() {}
 
 // Build completes the build process.
 func (b *Builder) Build() error {
@@ -72,26 +68,95 @@ func (b *Builder) build(buildPath string) error {
 	}
 	defer dockerClient.Close()
 
-	arc := detectArch()
-	stk, err := stack.ImageStackFromPath(buildPath, b.config.Dockerfile, b.config.ImageName(), b.lib, arc)
+	if b.config.ScratchBuild {
+		lib, err := globalLibraryCache.GetLibrary()
+		if err != nil {
+			return err
+		}
+		defer globalLibraryCache.Release()
+
+		arc := detectArch()
+		stk, err := stack.ImageStackFromPath(buildPath, b.config.Dockerfile, b.config.ImageName(), lib, arc)
+		if err != nil {
+			return err
+		}
+		if err := stk.RebaseOnArch(arc); err != nil {
+			return err
+		}
+
+		bldr := sbbuilder.NewBuilder(stk, dockerClient)
+		bldr.SetOutputStream(b.outputStream)
+		bldr.SetForceRemove(!b.config.PreserveIntermediate)
+		res := make(chan error)
+		go func() {
+			res <- bldr.Build()
+		}()
+
+		time.Sleep(time.Duration(1) * time.Second)
+
+		return <-res
+	}
+
+	return b.dockerBuild(dockerClient, buildPath, b.config.ImageName())
+}
+
+// build builds the dockerfile in a directory.
+func (b *Builder) dockerBuild(dockerClient client.APIClient, buildPath string, reference string) error {
+	isTerminal := false
+	var outFd uintptr
+	if b.outputStream == os.Stdout {
+		outFd = os.Stdout.Fd()
+		isTerminal = terminal.IsTerminal(int(outFd))
+	}
+
+	relDockerfile := b.config.Dockerfile
+	if relDockerfile == "" {
+		relDockerfile = "Dockerfile"
+	}
+	excludes, err := build.ReadDockerignore(buildPath)
 	if err != nil {
 		return err
 	}
-	if err := stk.RebaseOnArch(arc); err != nil {
+
+	if err := build.ValidateContextDirectory(buildPath, excludes); err != nil {
+		return fmt.Errorf("Error with context: %v", err)
+	}
+
+	excludes = build.TrimBuildFilesFromExcludes(excludes, relDockerfile, false)
+	buildCtx, err := archive.TarWithOptions(buildPath, &archive.TarOptions{
+		// Compression:     archive.Gzip, - results in an error
+		ExcludePatterns: excludes,
+	})
+	if err != nil {
 		return err
 	}
 
-	bldr := sbbuilder.NewBuilder(stk, dockerClient)
-	bldr.SetOutputStream(b.outputStream)
-	bldr.SetForceRemove(!b.config.PreserveIntermediate)
-	res := make(chan error)
-	go func() {
-		res <- bldr.Build()
-	}()
+	dockerfilePath := path.Join(buildPath, relDockerfile)
+	sourceBin, err := ioutil.ReadFile(dockerfilePath)
+	if err != nil {
+		return err
+	}
+	dockerfileSrc := string(sourceBin)
 
-	time.Sleep(time.Duration(1) * time.Second)
+	buildCtx, relDockerfile, err = build.AddDockerfileToBuildContext(&nopCloser{strings.NewReader(dockerfileSrc)}, buildCtx)
+	if err != nil {
+		return err
+	}
 
-	return <-res
+	progressOutput := streamformatter.NewProgressOutput(os.Stdout)
+	var body io.Reader = progress.NewProgressReader(buildCtx, progressOutput, 0, "", "Sending build context to Docker daemon")
+	response, err := dockerClient.ImageBuild(context.Background(), body, types.ImageBuildOptions{
+		PullParent:  false,
+		ForceRemove: !b.config.PreserveIntermediate,
+		Dockerfile:  relDockerfile,
+		Tags:        []string{reference},
+	})
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	return jsonmessage.DisplayJSONMessagesStream(response.Body, b.outputStream, outFd, isTerminal, nil)
 }
 
 // fetchSource downloads the source to a destination path.

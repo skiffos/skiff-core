@@ -14,6 +14,7 @@ replace (
 
 require (
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
+	github.com/docker/cli v0.0.0-20190815010145-aa097cf1aa19
 	github.com/docker/distribution v2.7.1+incompatible // indirect
 	github.com/docker/docker v1.14.0-0.20190319215453-e7b5f7dbe98c
 	github.com/gogo/protobuf v1.3.1 // indirect
@@ -24,6 +25,7 @@ require (
 	github.com/pkg/errors v0.8.1
 	github.com/sirupsen/logrus v1.4.2
 	github.com/urfave/cli v1.21.0
+	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
 	google.golang.org/grpc v1.25.1 // indirect
 	gopkg.in/src-d/go-git.v4 v4.13.1
