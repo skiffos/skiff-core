@@ -94,6 +94,11 @@ func (i *ImageSetup) Execute() (exError error) {
 	i.wg.Add(1)
 	defer func() {
 		i.err = exError
+		if exError != nil {
+			i.logger.Write([]byte("Image setup failed with error:\n"))
+			i.logger.Write([]byte(exError.Error()))
+			i.logger.Write([]byte("\n"))
+		}
 		i.wg.Done()
 	}()
 
