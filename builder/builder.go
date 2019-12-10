@@ -150,6 +150,7 @@ func (b *Builder) dockerBuild(dockerClient client.APIClient, buildPath string, r
 		ForceRemove: !b.config.PreserveIntermediate,
 		Dockerfile:  relDockerfile,
 		Tags:        []string{reference},
+		Squash:      b.config.Squash,
 	})
 	if err != nil {
 		return err

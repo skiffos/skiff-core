@@ -186,6 +186,8 @@ type ConfigImageBuild struct {
 	// NOTE: This is deprecated and defaults to false.
 	// The "correct way" is to use Docker manifests and multi-arch images.
 	ScratchBuild bool `json:"scratchBuild,omitempty" yaml:"scratchBuild,omitempty"`
+	// Squash indicates we should squash the results into a single layer before committing.
+	Squash bool `json:"squash,omitempty" yaml:"squash,omitempty"`
 }
 
 // ImageName returns the imageName
