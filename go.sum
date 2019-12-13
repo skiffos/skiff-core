@@ -145,6 +145,8 @@ github.com/opentracing-contrib/go-stdlib v0.0.0-20171029140428-b1a47cfbdd75/go.m
 github.com/opentracing/opentracing-go v0.0.0-20171003133519-1361b9cd60be/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
 github.com/paralin/scratchbuild v1.0.1 h1:YHZhxTL7VTK7T0FeHYmlmMC/MGC1qf5kwXxxjMYD8es=
 github.com/paralin/scratchbuild v1.0.1/go.mod h1:y3LcpSW3NLE/fifi850fgKBxSLP5530TsQps6m7zQKw=
+github.com/paralin/scratchbuild v1.0.2-0.20191213202554-135ca366503a h1:9lxum+ExaYBSzrVmHCjETmrg04ni2vo19HEkTnqTQEE=
+github.com/paralin/scratchbuild v1.0.2-0.20191213202554-135ca366503a/go.mod h1:y3LcpSW3NLE/fifi850fgKBxSLP5530TsQps6m7zQKw=
 github.com/pelletier/go-buffruneio v0.2.0/go.mod h1:JkE26KsDizTr40EUHkXVtNPvgGtbSNq5BcowyYOWdKo=
 github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=

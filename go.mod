@@ -8,7 +8,7 @@ replace (
 	github.com/docker/cli => github.com/docker/cli v0.0.0-20191113002236-6c12a82f3306
 	github.com/docker/docker => github.com/docker/engine v1.4.2-0.20190822180741-9552f2b2fdde // v18.09.9
 	github.com/moby/buildkit => github.com/moby/buildkit v0.6.2-0.20191113225518-5c9365b6f4c2
-	github.com/paralin/scratchbuild => github.com/paralin/scratchbuild v1.0.1
+	github.com/paralin/scratchbuild => github.com/paralin/scratchbuild v1.0.2-0.20191213202554-135ca366503a
 	github.com/tonistiigi/fsutil => github.com/tonistiigi/fsutil v0.0.0-20191018213012-0f039a052ca1
 )
 
@@ -21,7 +21,7 @@ require (
 	github.com/gorilla/mux v1.7.3 // indirect
 	github.com/hpcloud/tail v1.0.0
 	github.com/mgutz/str v1.2.0
-	github.com/paralin/scratchbuild v1.0.1
+	github.com/paralin/scratchbuild v1.0.2-0.20191213202554-135ca366503a
 	github.com/pkg/errors v0.8.1
 	github.com/sirupsen/logrus v1.4.2
 	github.com/urfave/cli v1.21.0

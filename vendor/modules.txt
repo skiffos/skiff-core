@@ -98,7 +98,7 @@ github.com/opencontainers/image-spec/specs-go/v1
 # github.com/opencontainers/runc v1.0.0-rc8.0.20190621203724-f4982d86f7fd
 github.com/opencontainers/runc/libcontainer/system
 github.com/opencontainers/runc/libcontainer/user
-# github.com/paralin/scratchbuild v1.0.1 => github.com/paralin/scratchbuild v1.0.1
+# github.com/paralin/scratchbuild v1.0.2-0.20191213202554-135ca366503a => github.com/paralin/scratchbuild v1.0.2-0.20191213202554-135ca366503a
 github.com/paralin/scratchbuild/arch
 github.com/paralin/scratchbuild/builder
 github.com/paralin/scratchbuild/cli
