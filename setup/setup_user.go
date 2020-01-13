@@ -119,8 +119,8 @@ func (cs *UserSetup) Execute() (execError error) {
 	// Set password
 	if cs.config.Auth == nil || cs.config.Auth.Password == "" {
 		le.Debug("Disabling password login")
-		if err := execCmd("passwd", "-l", cs.config.Name()); err != nil {
-			le.WithError(err).Warn("error while locking user password")
+		if err := execCmd("passwd", "-d", cs.config.Name()); err != nil {
+			le.WithError(err).Warn("error while unsetting user password")
 			// return err
 		}
 	} else {
