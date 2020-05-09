@@ -241,8 +241,14 @@ type ConfigUserAuth struct {
 	CopyRootKeys bool `json:"copyRootKeys,omitempty" yaml:"copyRootKeys,omitempty"`
 	// SSHKeys to allow authentication to the system.
 	SSHKeys []string `json:"sshKeys,omitempty" yaml:"sshKeys,omitempty"`
-	// Password. If empty, then password auth will be disabled.
+	// Password. If empty, then password will be set to very long random value.
+	// This is the most fool-proof way to disable password login for the account.
+	// Set AllowEmptyPassword if you want insecure login.
 	Password string `json:"password,omitempty" yaml:"password,omitempty"`
+	// AllowEmptyPassword allows an empty password field.
+	AllowEmptyPassword bool `json:"allowEmptyPassword,omitempty" yaml:"allowEmptyPassword,omitempty"`
+	// Locked indicates the user should be locked.
+	Locked bool `json:"locked,omitempty" yaml:"locked,omitempty"`
 }
 
 // ConfigUserShell is the configuration file loaded from the users' home directory.

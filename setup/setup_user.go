@@ -117,20 +117,41 @@ func (cs *UserSetup) Execute() (execError error) {
 	}
 
 	// Set password
-	if cs.config.Auth == nil || cs.config.Auth.Password == "" {
-		le.Debug("Disabling password login")
-		if err := execCmd("passwd", "-d", cs.config.Name()); err != nil {
-			le.WithError(err).Warn("error while unsetting user password")
-			// return err
+	var nextPassword string
+	var allowEmptyPassword bool
+	var lock bool
+	if cs.config.Auth != nil {
+		nextPassword = cs.config.Auth.Password
+		allowEmptyPassword = cs.config.Auth.AllowEmptyPassword
+		lock = cs.config.Auth.Locked
+	}
+
+	if lock {
+		le.Debug("Locking user")
+		if err := execCmd("passwd", "-l", cs.config.Name()); err != nil {
+			le.WithError(err).Warn("error while locking user")
+			return err
 		}
 	} else {
-		le.Debug("Setting password")
-		passwd := strings.Replace(cs.config.Auth.Password, "\n", "", -1)
-		passwordSet := strings.NewReader(fmt.Sprintf("%s\n%s\n", passwd, passwd))
-		cmd := exec.Command("passwd", cs.config.Name())
-		cmd.Stdin = passwordSet
-		if err := cmd.Run(); err != nil {
-			return err
+		if nextPassword == "" && !allowEmptyPassword {
+			le.Debug("Setting password to a long random value due to AllowEmptyPassword=false")
+			nextPassword = randomPassword()
+		}
+		if nextPassword == "" {
+			le.Debug("Disabling password for user (setting to empty password)")
+			if err := execCmd("passwd", "-d", cs.config.Name()); err != nil {
+				le.WithError(err).Warn("error while unsetting user password")
+				// return err
+			}
+		} else {
+			le.Debug("Setting password")
+			passwd := strings.Replace(nextPassword, "\n", "", -1)
+			passwordSet := strings.NewReader(fmt.Sprintf("%s\n%s\n", passwd, passwd))
+			cmd := exec.Command("passwd", cs.config.Name())
+			cmd.Stdin = passwordSet
+			if err := cmd.Run(); err != nil {
+				return err
+			}
 		}
 	}
 
