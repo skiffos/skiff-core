@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os/user"
 
-	"github.com/mgutz/str"
 	"github.com/paralin/skiff-core/shell"
 	"github.com/urfave/cli"
 )
@@ -26,11 +25,11 @@ var ShellCommands cli.Commands = []cli.Command{
 			}
 
 			sh := shell.NewShell(currentUser.HomeDir)
-			var cmd []string
-			if globalFlags.Command != "" {
-				cmd = str.ToArgv(globalFlags.Command)
-			}
-			err = sh.Execute(cmd)
+			// cmd, if unset, defaults to config.UserShell
+			// arg 2, execWithShell, indicates the cmd should be run in user shell.
+			// ex: cmd={"rsync", "~/test", "remote:test"}, converts to:
+			// docker exec -it container-id /bin/sh -c 'rsync ~/test remote:test'
+			err = sh.Execute(globalFlags.Command, true)
 			if err != nil {
 				return cli.NewExitError(err.Error(), 1)
 			}

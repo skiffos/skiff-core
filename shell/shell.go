@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/hpcloud/tail"
+	"github.com/mgutz/str"
 	"github.com/paralin/skiff-core/config"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -48,8 +49,44 @@ func (s *Shell) loadUserConfig(configPath string) (*config.ConfigUserShell, erro
 	return config.UnmarshalConfigUserShell(data)
 }
 
+// defaultShell is the default shell to use if nothing else is found.
+var defaultShell = []string{"/bin/sh"}
+
+// buildTargetCmd builds the full command to pass to docker, wrapping with shell.
+func (s *Shell) buildTargetCmd(
+	userConfig *config.ConfigUserShell,
+	inputCmd string,
+	execWithShell bool,
+) ([]string, error) {
+	var targetCmd []string
+	userShell := userConfig.Shell
+	if len(userShell) == 0 {
+		userShell = defaultShell
+	}
+
+	// Setup the command based on the given.
+	if len(inputCmd) != 0 {
+		if execWithShell {
+			targetCmd = make([]string, len(userShell)+2)
+			copy(targetCmd, userShell)
+			targetCmd[len(targetCmd)-2] = "-c"
+			targetCmd[len(targetCmd)-1] = inputCmd
+		} else {
+			targetCmd = str.ToArgv(inputCmd)
+		}
+	}
+
+	if len(targetCmd) == 0 {
+		targetCmd = userShell // execute shell directly
+	}
+	return targetCmd, nil
+}
+
 // Execute executes the shell, redirecting stdin.
-func (s *Shell) Execute(cmd []string) error {
+func (s *Shell) Execute(
+	inputCmd string,
+	execWithShell bool,
+) error {
 	dockerClient, err := s.buildDockerClient()
 	if err != nil {
 		return err
@@ -118,11 +155,9 @@ func (s *Shell) Execute(cmd []string) error {
 		pollTimer.Stop()
 	}
 
-	if len(cmd) == 0 {
-		cmd = userConfig.Shell
-	}
-	if len(cmd) == 0 {
-		cmd = []string{"/bin/sh"}
+	cmd, err := s.buildTargetCmd(userConfig, inputCmd, execWithShell)
+	if err != nil {
+		return err
 	}
 
 	// Probe the state of the container.
