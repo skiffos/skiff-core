@@ -25,6 +25,7 @@ require (
 	github.com/pkg/errors v0.8.1
 	github.com/sirupsen/logrus v1.4.2
 	github.com/urfave/cli v1.21.0
+	github.com/zloylos/grsync v0.0.0-20200204095520-71a00a7141be
 	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
 	google.golang.org/grpc v1.25.1 // indirect

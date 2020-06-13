@@ -143,8 +143,6 @@ github.com/opencontainers/runc v1.0.0-rc8.0.20190621203724-f4982d86f7fd/go.mod h
 github.com/opencontainers/runtime-spec v0.0.0-20180909173843-eba862dc2470/go.mod h1:jwyrGlmzljRJv/Fgzds9SsS/C5hL+LL3ko9hs6T5lQ0=
 github.com/opentracing-contrib/go-stdlib v0.0.0-20171029140428-b1a47cfbdd75/go.mod h1:PLldrQSroqzH70Xl+1DQcGnefIbqsKR7UDaiux3zV+w=
 github.com/opentracing/opentracing-go v0.0.0-20171003133519-1361b9cd60be/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
-github.com/paralin/scratchbuild v1.0.1 h1:YHZhxTL7VTK7T0FeHYmlmMC/MGC1qf5kwXxxjMYD8es=
-github.com/paralin/scratchbuild v1.0.1/go.mod h1:y3LcpSW3NLE/fifi850fgKBxSLP5530TsQps6m7zQKw=
 github.com/paralin/scratchbuild v1.0.2-0.20191213202554-135ca366503a h1:9lxum+ExaYBSzrVmHCjETmrg04ni2vo19HEkTnqTQEE=
 github.com/paralin/scratchbuild v1.0.2-0.20191213202554-135ca366503a/go.mod h1:y3LcpSW3NLE/fifi850fgKBxSLP5530TsQps6m7zQKw=
 github.com/pelletier/go-buffruneio v0.2.0/go.mod h1:JkE26KsDizTr40EUHkXVtNPvgGtbSNq5BcowyYOWdKo=
@@ -172,6 +170,8 @@ github.com/stretchr/objx v0.2.0/go.mod h1:qt09Ya8vawLte6SNmTgCsAVtYtaKzEcn8ATUoH
 github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
 github.com/stretchr/testify v1.3.0 h1:TivCn/peBQ7UY8ooIcPgZFpTNSz0Q2U6UrFlUfqbe0Q=
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
+github.com/stretchr/testify v1.4.0 h1:2E4SXV/wtOkTonXsotYi4li6zVWxYlZuYNCXe9XRJyk=
+github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/syndtr/gocapability v0.0.0-20180916011248-d98352740cb2/go.mod h1:hkRG7XYTFWNJGYcbNJQlaLq0fg1yr4J4t/NcTQtrfww=
 github.com/tonistiigi/fsutil v0.0.0-20191018213012-0f039a052ca1/go.mod h1:hP47OZfgT1aNVDJj28EnEKaKg6mjPEoS5Tb4BsWCTPs=
 github.com/tonistiigi/units v0.0.0-20180711220420-6950e57a87ea/go.mod h1:WPnis/6cRcDZSUvVmezrxJPkiO87ThFYsoUiMwWNDJk=
@@ -185,6 +185,8 @@ github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc/go.mod h1:ZjcWmF
 github.com/xanzy/ssh-agent v0.2.1 h1:TCbipTQL2JiiCprBWx9frJ2eJlCYT00NmctrHxVAr70=
 github.com/xanzy/ssh-agent v0.2.1/go.mod h1:mLlQY/MoOhWBj+gOGMQkOeiEvkx+8pJSI+0Bx9h2kr4=
 github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8/go.mod h1:HUYIGzjTL3rfEspMxjDjgmT5uz5wzYJKVo23qUhYTos=
+github.com/zloylos/grsync v0.0.0-20200204095520-71a00a7141be h1:rT0BZrziodlFZ6tCEoqfL6HJdEiikZQRuNU2BDjItl0=
+github.com/zloylos/grsync v0.0.0-20200204095520-71a00a7141be/go.mod h1:2utuy8p4VcWXfB5p9wTL+VCberFM+MwTDjDf1nr8s78=
 go.etcd.io/bbolt v1.3.3/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 golang.org/x/crypto v0.0.0-20180904163835-0709b304e793/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/crypto v0.0.0-20190103213133-ff983b9c42bc/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=

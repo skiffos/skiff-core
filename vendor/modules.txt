@@ -121,6 +121,8 @@ github.com/src-d/gcfg/types
 github.com/urfave/cli
 # github.com/xanzy/ssh-agent v0.2.1
 github.com/xanzy/ssh-agent
+# github.com/zloylos/grsync v0.0.0-20200204095520-71a00a7141be
+github.com/zloylos/grsync
 # golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
 golang.org/x/crypto/cast5
 golang.org/x/crypto/curve25519
