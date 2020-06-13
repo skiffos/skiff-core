@@ -3,6 +3,7 @@ package builder
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	rsync "github.com/zloylos/grsync"
@@ -18,6 +19,12 @@ func (b *Builder) fetchSourceRsync(destination, source string) error {
 		return fmt.Errorf("Cannot sync from %s, not a directory.", source)
 	}
 	log.WithField("source", source).WithField("destination", destination).Debug("Syncing")
+	if !strings.HasSuffix(destination, "/") {
+		destination += "/"
+	}
+	if !strings.HasSuffix(source, "/") {
+		source += "/"
+	}
 	task := rsync.NewTask(source, destination, rsync.RsyncOptions{
 		// Verbose increase verbosity
 		Verbose: true,
