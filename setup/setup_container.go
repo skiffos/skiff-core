@@ -41,6 +41,7 @@ func (cs *ContainerSetup) buildDockerContainer() *types.ContainerCreateConfig {
 		Image:      config.Image,
 		Tty:        config.Tty,
 		WorkingDir: config.WorkingDirectory,
+		StopSignal: config.StopSignal,
 	}
 	res.Config = containerConfig
 	for _, ev := range config.Env {

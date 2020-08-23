@@ -87,6 +87,8 @@ type ConfigContainer struct {
 	RestartPolicy string `json:"restartPolicy,omitempty" yaml:"restartPolicy,omitempty"`
 	// StartAfterCreate indicates we should start the container immediately after creating it.
 	StartAfterCreate bool `json:"startAfterCreate,omitempty" yaml:"startAfterCreate,omitempty"`
+	// StopSignal contains the stop signal to use when stopping the container.
+	StopSignal string `json:"stopSignal,omitempty" yaml:"stopSignal,omitempty"`
 }
 
 // ConfigContainerEnvironmentVariable configures an environment variable.
