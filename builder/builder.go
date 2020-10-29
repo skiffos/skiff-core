@@ -97,7 +97,13 @@ func (b *Builder) build(buildPath string) error {
 		return <-res
 	}
 
-	return b.dockerBuild(dockerClient, buildPath, b.config.ImageName())
+	if err := b.dockerBuild(dockerClient, buildPath, b.config.ImageName()); err != nil {
+		return err
+	}
+
+	// race: briefly for image tag to complete
+	<-time.After(time.Millisecond * 200)
+	return nil
 }
 
 // build builds the dockerfile in a directory.
