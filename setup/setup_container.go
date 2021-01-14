@@ -106,6 +106,7 @@ func (cs *ContainerSetup) Execute() (execError error) {
 	if err != nil {
 		return err
 	}
+	defer dockerClient.Close()
 
 	// wait for the image to be ready
 	if err := cs.waiter.WaitForImage(config.Image, &cs.logger); err != nil {
@@ -150,7 +151,7 @@ func (cs *ContainerSetup) Execute() (execError error) {
 	}
 	le.WithField("id", res.ID).Debug("Container created")
 	for _, warning := range res.Warnings {
-		le.Warn("Docker issued warning: %s", warning)
+		le.Warnf("Docker issued warning: %s", warning)
 	}
 	cs.containerId = res.ID
 

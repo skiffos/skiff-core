@@ -221,6 +221,10 @@ type ConfigUser struct {
 	ContainerUser string `json:"containerUser,omitempty" yaml:"containerUser,omitempty"`
 	// ContainerShell is the default shell to execute in the container.
 	ContainerShell []string `json:"containerShell,omitempty" yaml:"containerShell,omitempty"`
+	// CreateContainerUser indicates to create the container user if it doesn't exist.
+	//
+	// Note: if this step fails the error is logged but ignored.
+	CreateContainerUser bool `json:"createContainerUser,omitempty" yaml:"createContainerUser,omitempty"`
 }
 
 // Name returns the name of the user.

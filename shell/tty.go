@@ -5,9 +5,11 @@ import (
 	gosignal "os/signal"
 
 	"context"
+
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/signal"
+	"github.com/paralin/skiff-core/util/execcmd"
 )
 
 // resizeTtyTo resizes tty to specific height and width
@@ -36,7 +38,7 @@ func resizeTtyTo(ctx context.Context, client client.ContainerAPIClient, id strin
 }
 
 // MonitorTtySize updates the container tty size when the terminal tty changes size
-func MonitorTtySize(ctx context.Context, client client.APIClient, out *OutStream, id string, isExec bool) error {
+func MonitorTtySize(ctx context.Context, client client.APIClient, out *execcmd.OutStream, id string, isExec bool) error {
 	resizeTty := func() {
 		height, width := out.GetTtySize()
 		resizeTtyTo(ctx, client, id, height, width, isExec)

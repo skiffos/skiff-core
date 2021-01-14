@@ -2,8 +2,9 @@ package setup
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
+
+	"github.com/paralin/skiff-core/util/execcmd"
 )
 
 // pathToSkiffCore returns the path to this executable.
@@ -12,9 +13,4 @@ func pathToSkiffCore() (string, error) {
 }
 
 // execCmd executes a command
-func execCmd(command string, args ...string) error {
-	cmd := exec.Command(command, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
+var execCmd = execcmd.ExecCmd

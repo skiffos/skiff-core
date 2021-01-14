@@ -106,6 +106,7 @@ func (i *ImageSetup) Execute() (exError error) {
 	if err != nil {
 		return err
 	}
+	defer dockerClient.Close()
 
 	exists, err := i.checkImageExists(dockerClient, i.config.Name())
 	if err != nil {

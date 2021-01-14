@@ -1,4 +1,4 @@
-package shell
+package execcmd
 
 import (
 	"github.com/docker/docker/pkg/term"

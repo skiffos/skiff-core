@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,9 @@ import (
 	"github.com/paralin/skiff-core/config"
 	log "github.com/sirupsen/logrus"
 )
+
+// globalCreateContainerUserMtx prevents creating multiple users simultaneously.
+var globalCreateContainerUserMtx sync.Mutex
 
 // UserSetup sets up a container.
 type UserSetup struct {
@@ -222,6 +226,41 @@ func (cs *UserSetup) Execute() (execError error) {
 	containerId, err := cs.waiter.WaitForContainer(cs.config.Container, logFile)
 	if err != nil {
 		return err
+	}
+
+	if conf.ContainerUser != "" && conf.CreateContainerUser {
+		globalCreateContainerUserMtx.Lock()
+		// Check if user exists.
+		err := cs.waiter.ExecCmdContainer(
+			containerId,
+			"root",
+			nil, os.Stderr, os.Stderr,
+			"id", conf.ContainerUser,
+		)
+		if err == context.Canceled {
+			err = nil
+		}
+		if err != nil {
+			errStr := strings.TrimSpace(err.Error())
+			if strings.Contains(errStr, "no such user") {
+				ule := le.
+					WithField("container-user", conf.ContainerUser).
+					WithField("container-id", containerId)
+				ule.Debug("Creating container user...")
+				err = cs.waiter.ExecCmdContainer(
+					containerId, "root",
+					nil, os.Stderr, os.Stderr,
+					"useradd", conf.ContainerUser,
+				)
+				if err != nil {
+					ule.
+						WithError(err).
+						Warn("Unable to create container user")
+				}
+			}
+		}
+
+		globalCreateContainerUserMtx.Unlock()
 	}
 
 	userConfPath := path.Join(euser.HomeDir, config.UserConfigFile)

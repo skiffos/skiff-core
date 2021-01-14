@@ -1,32 +1,33 @@
-package shell
+package execcmd
 
 import (
 	"io"
 
 	"context"
-	"github.com/sirupsen/logrus"
+
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/docker/pkg/term"
+	"github.com/sirupsen/logrus"
 )
 
-// A hijackedIOStreamer handles copying input to and output from streams to the
+// HijackedIOStreamer handles copying input to and output from streams to the
 // connection.
-type hijackedIOStreamer struct {
-	inputStream  io.ReadCloser
-	outputStream io.Writer
-	errorStream  io.Writer
+type HijackedIOStreamer struct {
+	InputStream  io.ReadCloser
+	OutputStream io.Writer
+	ErrorStream  io.Writer
 
-	resp types.HijackedResponse
+	Resp types.HijackedResponse
 
-	tty bool
+	Tty bool
 }
 
-// stream handles setting up the IO and then begins streaming stdin/stdout
+// Stream handles setting up the IO and then begins streaming stdin/stdout
 // to/from the hijacked connection, blocking until it is either done reading
 // output, the user inputs the detach key sequence when in TTY mode, or when
 // the given context is cancelled.
-func (h *hijackedIOStreamer) stream(ctx context.Context) error {
+func (h *HijackedIOStreamer) Stream(ctx context.Context) error {
 	outputDone := h.beginOutputStream()
 	inputDone, detached := h.beginInputStream()
 
@@ -35,7 +36,7 @@ func (h *hijackedIOStreamer) stream(ctx context.Context) error {
 		return err
 	case <-inputDone:
 		// Input stream has closed.
-		if h.outputStream != nil || h.errorStream != nil {
+		if h.OutputStream != nil || h.ErrorStream != nil {
 			// Wait for output to complete streaming.
 			select {
 			case err := <-outputDone:
@@ -53,8 +54,8 @@ func (h *hijackedIOStreamer) stream(ctx context.Context) error {
 	}
 }
 
-func (h *hijackedIOStreamer) beginOutputStream() <-chan error {
-	if h.outputStream == nil && h.errorStream == nil {
+func (h *HijackedIOStreamer) beginOutputStream() <-chan error {
+	if h.OutputStream == nil && h.ErrorStream == nil {
 		// There is no need to copy output.
 		return nil
 	}
@@ -64,10 +65,10 @@ func (h *hijackedIOStreamer) beginOutputStream() <-chan error {
 		var err error
 
 		// When TTY is ON, use regular copy
-		if h.outputStream != nil && h.tty {
-			_, err = io.Copy(h.outputStream, h.resp.Reader)
+		if h.OutputStream != nil && h.Tty {
+			_, err = io.Copy(h.OutputStream, h.Resp.Reader)
 		} else {
-			_, err = stdcopy.StdCopy(h.outputStream, h.errorStream, h.resp.Reader)
+			_, err = stdcopy.StdCopy(h.OutputStream, h.ErrorStream, h.Resp.Reader)
 		}
 
 		if err != nil {
@@ -80,13 +81,13 @@ func (h *hijackedIOStreamer) beginOutputStream() <-chan error {
 	return outputDone
 }
 
-func (h *hijackedIOStreamer) beginInputStream() (doneC <-chan struct{}, detachedC <-chan error) {
+func (h *HijackedIOStreamer) beginInputStream() (doneC <-chan struct{}, detachedC <-chan error) {
 	inputDone := make(chan struct{})
 	detached := make(chan error)
 
 	go func() {
-		if h.inputStream != nil {
-			_, err := io.Copy(h.resp.Conn, h.inputStream)
+		if h.InputStream != nil {
+			_, err := io.Copy(h.Resp.Conn, h.InputStream)
 
 			if _, ok := err.(term.EscapeError); ok {
 				detached <- err
@@ -101,7 +102,7 @@ func (h *hijackedIOStreamer) beginInputStream() (doneC <-chan struct{}, detached
 			}
 		}
 
-		if err := h.resp.CloseWrite(); err != nil {
+		if err := h.Resp.CloseWrite(); err != nil {
 			logrus.Debugf("Couldn't send EOF: %s", err)
 		}
 

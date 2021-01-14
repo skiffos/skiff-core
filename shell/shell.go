@@ -15,6 +15,7 @@ import (
 	"github.com/hpcloud/tail"
 	"github.com/mgutz/str"
 	"github.com/paralin/skiff-core/config"
+	"github.com/paralin/skiff-core/util/execcmd"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -92,10 +93,10 @@ func (s *Shell) Execute(
 		return err
 	}
 
-	in := NewInStream(os.Stdin)
-	out := NewOutStream(os.Stdout)
-	errOut := NewOutStream(os.Stderr)
-	useTty := in.IsTty() // Detect if this is necessary?
+	in := execcmd.NewInStream(os.Stdin, true)
+	out := execcmd.NewOutStream(os.Stdout)
+	errOut := execcmd.NewOutStream(os.Stderr)
+	useTty := in.IsTty()
 
 	configPath := path.Join(s.homeDir, config.UserConfigFile)
 	logPath := path.Join(s.homeDir, config.UserLogFile)
@@ -168,48 +169,19 @@ func (s *Shell) Execute(
 
 	if ins.State == nil || !ins.State.Running {
 		errOut.Write([]byte("Starting container " + userConfig.ContainerId + "...\n"))
-		err = dockerClient.ContainerStart(ctx, userConfig.ContainerId, types.ContainerStartOptions{})
-		if err != nil {
+		if err := execcmd.StartContainer(ctx, dockerClient, userConfig.ContainerId, 0); err != nil {
+			if err == context.Canceled {
+				return err
+			}
+			logsCloser, lerr := dockerClient.ContainerLogs(ctx, userConfig.ContainerId, types.ContainerLogsOptions{
+				ShowStderr: true,
+				ShowStdout: true,
+			})
+			if lerr == nil {
+				_, _ = io.Copy(errOut, logsCloser)
+				logsCloser.Close()
+			}
 			return fmt.Errorf("Unable to start container: %s", err.Error())
-		}
-
-		// wait for the container to start
-		for {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(time.Duration(100) * time.Millisecond):
-			}
-
-			ctr, err := dockerClient.ContainerInspect(ctx, userConfig.ContainerId)
-			if err != nil {
-				return err
-			}
-			if ctr.State == nil {
-				continue
-			}
-			if ctr.State.Dead ||
-				(!ctr.State.Running && !ctr.State.Restarting && ctr.State.Status == "exited") {
-				err = fmt.Errorf("Container failed to start with exit code: %d", ctr.State.ExitCode)
-				logsCloser, lerr := dockerClient.ContainerLogs(ctx, userConfig.ContainerId, types.ContainerLogsOptions{
-					ShowStderr: true,
-					ShowStdout: true,
-				})
-				if lerr == nil {
-					io.Copy(errOut, logsCloser)
-					logsCloser.Close()
-				}
-				return err
-			}
-
-			health := ctr.State.Health
-			if health != nil && (health.Status != "none" && health.Status != "healthy") {
-				continue
-			}
-
-			if ctr.State.Running {
-				break
-			}
 		}
 	}
 
@@ -238,19 +210,19 @@ func (s *Shell) Execute(
 	// pipe os.stdin to the connection
 	errCh := make(chan error, 1)
 	go func() {
-		streamer := hijackedIOStreamer{
-			inputStream:  in,
-			outputStream: out,
-			errorStream:  errOut,
-			resp:         conn,
-			tty:          useTty,
+		streamer := execcmd.HijackedIOStreamer{
+			InputStream:  in,
+			OutputStream: out,
+			ErrorStream:  errOut,
+			Resp:         conn,
+			Tty:          useTty,
 		}
 		if useTty {
 			in.SetRawMode()
 			defer in.RestoreTerminal()
 		}
 
-		errCh <- streamer.stream(ctx)
+		errCh <- streamer.Stream(ctx)
 	}()
 
 	if useTty && in.IsTerminal() {

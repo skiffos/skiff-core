@@ -1,11 +1,14 @@
 package setup
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
 
+	dockerclient "github.com/docker/docker/client"
 	"github.com/paralin/skiff-core/config"
+	"github.com/paralin/skiff-core/util/execcmd"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -53,6 +56,24 @@ func (s *Setup) WaitForContainer(name string, logOut io.Writer) (string, error) 
 func (s *Setup) CheckHasContainer(name string) bool {
 	_, ok := s.containerSetups[name]
 	return ok
+}
+
+// ExecCmdContainer executes a command in a container.
+func (s *Setup) ExecCmdContainer(containerID, userID string, stdIn io.Reader, stdOut, stdErr io.Writer, cmd string, args ...string) error {
+	dockerClient, err := dockerclient.NewEnvClient()
+	if err != nil {
+		return err
+	}
+	defer dockerClient.Close()
+
+	return execcmd.ExecCmdContainer(
+		context.Background(),
+		dockerClient,
+		containerID,
+		userID,
+		stdIn, stdOut, stdErr,
+		cmd, args...,
+	)
 }
 
 // NewSetup builds a new Setup instance.
