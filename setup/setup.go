@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/docker/docker/api/types"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/paralin/skiff-core/config"
 	"github.com/paralin/skiff-core/util/execcmd"
@@ -65,6 +66,9 @@ func (s *Setup) ExecCmdContainer(containerID, userID string, stdIn io.Reader, st
 		return err
 	}
 	defer dockerClient.Close()
+
+	// Ensure container is running.
+	_ = dockerClient.ContainerStart(context.Background(), containerID, types.ContainerStartOptions{})
 
 	return execcmd.ExecCmdContainer(
 		context.Background(),
