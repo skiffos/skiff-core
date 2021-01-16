@@ -1,7 +1,7 @@
 package setup
 
 import (
-	"context"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -231,32 +231,28 @@ func (cs *UserSetup) Execute() (execError error) {
 	if conf.ContainerUser != "" && conf.CreateContainerUser {
 		globalCreateContainerUserMtx.Lock()
 		// Check if user exists.
+		var outp bytes.Buffer
 		err := cs.waiter.ExecCmdContainer(
 			containerId,
 			"root",
-			nil, os.Stderr, os.Stderr,
+			nil, nil, &outp, // catch stderr only
 			"id", conf.ContainerUser,
 		)
-		if err == context.Canceled {
-			err = nil
-		}
-		if err != nil {
-			errStr := strings.TrimSpace(err.Error())
-			if strings.Contains(errStr, "no such user") {
-				ule := le.
-					WithField("container-user", conf.ContainerUser).
-					WithField("container-id", containerId)
-				ule.Debug("Creating container user...")
-				err = cs.waiter.ExecCmdContainer(
-					containerId, "root",
-					nil, os.Stderr, os.Stderr,
-					"useradd", conf.ContainerUser,
-				)
-				if err != nil {
-					ule.
-						WithError(err).
-						Warn("Unable to create container user")
-				}
+		errStr := strings.TrimSpace(outp.String())
+		if strings.HasSuffix(errStr, "no such user") {
+			ule := le.
+				WithField("container-user", conf.ContainerUser).
+				WithField("container-id", containerId)
+			ule.Debug("Creating container user...")
+			err = cs.waiter.ExecCmdContainer(
+				containerId, "root",
+				nil, os.Stderr, os.Stderr,
+				"useradd", conf.ContainerUser,
+			)
+			if err != nil {
+				ule.
+					WithError(err).
+					Warn("Unable to create container user")
 			}
 		}
 
