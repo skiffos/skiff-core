@@ -35,6 +35,10 @@ func (o *OutStream) GetTtySize() (uint, uint) {
 
 // NewOutStream returns a new OutStream object from a Writer
 func NewOutStream(out io.Writer) *OutStream {
+	if out == nil {
+		return nil
+	}
+
 	fd, isTerminal := term.GetFdInfo(out)
 	return &OutStream{CommonStream: CommonStream{fd: fd, isTerminal: isTerminal}, out: out}
 }

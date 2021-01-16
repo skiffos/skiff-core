@@ -14,13 +14,18 @@ type InStream struct {
 }
 
 func (i *InStream) Read(p []byte) (int, error) {
+	if i.in == nil {
+		return 0, io.EOF
+	}
 	return i.in.Read(p)
 }
 
 // Close implements the Closer interface
 func (i *InStream) Close() error {
-	if c, ok := i.in.(io.ReadCloser); i.close && ok {
-		return c.Close()
+	if i.in != nil {
+		if c, ok := i.in.(io.ReadCloser); i.close && ok {
+			return c.Close()
+		}
 	}
 	return nil
 }
@@ -32,6 +37,9 @@ func (i *InStream) IsTty() bool {
 
 // NewInStream returns a new InStream object from a ReadCloser
 func NewInStream(in io.Reader, close bool) *InStream {
+	if in == nil {
+		return nil
+	}
 	fd, isTerminal := term.GetFdInfo(in)
 	return &InStream{CommonStream: CommonStream{fd: fd, isTerminal: isTerminal}, in: in, close: close}
 }

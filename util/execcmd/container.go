@@ -16,19 +16,10 @@ func ExecCmdContainer(
 	stdIn io.Reader, stdOut, stdErr io.Writer,
 	cmd string, args ...string,
 ) error {
-	var in *InStream
-	if stdIn != nil {
-		in = NewInStream(stdIn, false)
-	}
-	var out *OutStream
-	if stdOut != nil {
-		out = NewOutStream(stdOut)
-	}
-	var errOut *OutStream
-	if stdErr != nil {
-		stdErr = NewOutStream(stdErr)
-	}
-	useTty := in.IsTty()
+	in := NewInStream(stdIn, false)
+	out := NewOutStream(stdOut)
+	errOut := NewOutStream(stdErr)
+	useTty := in != nil && in.IsTty()
 
 	cmds := append([]string{cmd}, args...)
 	execCreate, err := dockerClient.ContainerExecCreate(ctx, containerID, types.ExecConfig{
@@ -53,11 +44,18 @@ func ExecCmdContainer(
 	}
 	defer conn.Close()
 
-	return (&HijackedIOStreamer{
-		InputStream:  in,
-		OutputStream: out,
-		ErrorStream:  errOut,
-		Resp:         conn,
-		Tty:          useTty,
-	}).Stream(ctx)
+	strm := &HijackedIOStreamer{
+		Resp: conn,
+		Tty:  useTty,
+	}
+	if in != nil {
+		strm.InputStream = in
+	}
+	if out != nil {
+		strm.OutputStream = out
+	}
+	if errOut != nil {
+		strm.ErrorStream = errOut
+	}
+	return strm.Stream(ctx)
 }
