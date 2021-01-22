@@ -20,11 +20,13 @@ var SetupCommands cli.Commands = []cli.Command{
 				Name:        "create-users",
 				Usage:       "If set, core will attempt to create missing users.",
 				Destination: &setupArgs.CreateUsers,
+				EnvVar:      "SKIFF_CORE_CREATE_USERS",
 			},
 			cli.StringFlag{
 				Name:        "work-dir",
 				Usage:       "If set, core will use the directory for working files.",
 				Destination: &setupArgs.WorkDir,
+				EnvVar:      "SKIFF_CORE_WORK_DIR",
 			},
 		},
 		Name:  "setup",
