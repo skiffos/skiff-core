@@ -1,12 +1,15 @@
 package main
 
 import (
+	"os"
+
 	"github.com/paralin/skiff-core/setup"
 	"github.com/urfave/cli"
 )
 
 var setupArgs struct {
 	CreateUsers bool
+	WorkDir     string
 }
 
 // SetupCommands define the commands for "setup"
@@ -18,6 +21,11 @@ var SetupCommands cli.Commands = []cli.Command{
 				Usage:       "If set, core will attempt to create missing users.",
 				Destination: &setupArgs.CreateUsers,
 			},
+			cli.StringFlag{
+				Name:        "work-dir",
+				Usage:       "If set, core will use the directory for working files.",
+				Destination: &setupArgs.WorkDir,
+			},
 		},
 		Name:  "setup",
 		Usage: "Sets up users and containers.",
@@ -28,7 +36,19 @@ var SetupCommands cli.Commands = []cli.Command{
 				return cli.NewExitError("Unable to parse config: "+err.Error(), 1)
 			}
 
-			s := setup.NewSetup(conf, setupArgs.CreateUsers)
+			if _, err := os.Stat(setupArgs.WorkDir); err != nil {
+				if os.IsNotExist(err) {
+					// if we created the dir, remove it afterwards.
+					defer os.RemoveAll(setupArgs.WorkDir)
+				}
+				err = os.Mkdir(setupArgs.WorkDir, 0755)
+				if err != nil {
+					return cli.NewExitError("Unable to create working directory: "+err.Error(), 1)
+				}
+			}
+
+			s := setup.NewSetup(conf, setupArgs.WorkDir, setupArgs.CreateUsers)
+
 			err = s.Execute()
 			if err != nil {
 				return cli.NewExitError(err.Error(), 1)

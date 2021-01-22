@@ -16,6 +16,7 @@ import (
 // Setup is an instance of a setup process.
 type Setup struct {
 	config          *config.Config
+	workDir         string
 	imageSetups     map[string]*ImageSetup
 	containerSetups map[string]*ContainerSetup
 	createUsers     bool
@@ -81,9 +82,10 @@ func (s *Setup) ExecCmdContainer(containerID, userID string, stdIn io.Reader, st
 }
 
 // NewSetup builds a new Setup instance.
-func NewSetup(conf *config.Config, createUsers bool) *Setup {
+func NewSetup(conf *config.Config, workDir string, createUsers bool) *Setup {
 	return &Setup{
 		config:          conf,
+		workDir:         workDir,
 		createUsers:     createUsers,
 		imageSetups:     make(map[string]*ImageSetup),
 		containerSetups: make(map[string]*ContainerSetup),
@@ -95,7 +97,7 @@ func (s *Setup) Execute() error {
 	var jobs []SetupJob
 
 	addImageJob := func(image *config.ConfigImage) {
-		pend := NewImageSetup(image)
+		pend := NewImageSetup(image, s.workDir)
 		jobs = append(jobs, pend)
 		s.imageSetups[image.Name()] = pend
 	}

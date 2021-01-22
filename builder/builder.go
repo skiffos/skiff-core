@@ -28,10 +28,13 @@ import (
 type Builder struct {
 	config       *config.ConfigImageBuild
 	outputStream io.Writer
+	workDir      string
 }
 
 // NewBuilder creates a Builder.
-func NewBuilder(config *config.ConfigImageBuild) (*Builder, error) {
+//
+// workDir can be empty to use /tmp (not recommended)
+func NewBuilder(config *config.ConfigImageBuild, workDir string) (*Builder, error) {
 	return &Builder{config: config}, nil
 }
 
@@ -45,7 +48,7 @@ func (b *Builder) Close() {}
 
 // Build completes the build process.
 func (b *Builder) Build() error {
-	tmpDir, err := ioutil.TempDir("", "skiff-core-build-")
+	tmpDir, err := ioutil.TempDir(b.workDir, "skiff-core-build-")
 	if err != nil {
 		return err
 	}
@@ -53,11 +56,12 @@ func (b *Builder) Build() error {
 		os.RemoveAll(tmpDir)
 	}()
 
-	if err := b.fetchSource(tmpDir); err != nil {
+	dir, err := b.fetchSource(tmpDir)
+	if err != nil {
 		return err
 	}
 
-	return b.build(tmpDir)
+	return b.build(dir)
 }
 
 // build completes building the image with a source tree.
@@ -167,26 +171,31 @@ func (b *Builder) dockerBuild(dockerClient client.APIClient, buildPath string, r
 }
 
 // fetchSource downloads the source to a destination path.
-func (b *Builder) fetchSource(destination string) error {
+//
+// If the source is already somewhere suitable on disk, returns that path instead.
+func (b *Builder) fetchSource(destination string) (outDir string, err error) {
 	source := b.config.Source
 
 	if source == "" {
-		return errors.New("No source specified")
+		return "", errors.New("No source specified")
 	}
 
 	// determine which kind of URL it is.
 	if strings.HasPrefix(source, "git://") ||
 		(strings.HasSuffix(source, ".git") && strings.HasPrefix(source, "http")) {
-		return b.fetchSourceGit(destination, source)
+		return destination, b.fetchSourceGit(destination, source)
 	}
 
-	if strings.HasSuffix(destination, ".tar.gz") {
-		return b.fetchSourceTarball(destination, source)
+	if strings.HasSuffix(source, ".tar.gz") {
+		return destination, b.fetchSourceTarball(destination, source)
 	}
 
-	if strings.HasPrefix(destination, "/") {
-		return b.fetchSourceRsync(destination, source)
+	if strings.HasPrefix(source, "/") {
+		if _, ferr := os.Stat(source); ferr == nil {
+			return source, nil
+		}
+		return destination, b.fetchSourceRsync(destination, source)
 	}
 
-	return fmt.Errorf("Unrecognized source kind: %s", destination)
+	return "", fmt.Errorf("Unrecognized source kind: %s", destination)
 }

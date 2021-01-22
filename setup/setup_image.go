@@ -18,16 +18,19 @@ import (
 
 // ImageSetup is responsible for setting up an image.
 type ImageSetup struct {
-	logger multiwriter.MultiWriter
-	config *config.ConfigImage
+	logger  multiwriter.MultiWriter
+	config  *config.ConfigImage
+	workDir string
 
 	err error
 	wg  sync.WaitGroup
 }
 
 // NewImageSetup builds a new ImageSetup.
-func NewImageSetup(conf *config.ConfigImage) *ImageSetup {
-	s := &ImageSetup{config: conf}
+//
+// workDir can be empty to use /tmp
+func NewImageSetup(conf *config.ConfigImage, workDir string) *ImageSetup {
+	s := &ImageSetup{config: conf, workDir: workDir}
 	s.logger.AddWriter(os.Stdout)
 	return s
 }
@@ -78,7 +81,7 @@ func (i *ImageSetup) build() (buildError error) {
 		}
 	}()
 
-	bldr, err := builder.NewBuilder(bc)
+	bldr, err := builder.NewBuilder(bc, i.workDir)
 	if err != nil {
 		return err
 	}
