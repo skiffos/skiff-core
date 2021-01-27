@@ -69,7 +69,17 @@ func (i *ImageSetup) pull(dockerClient *client.Client) (pullError error) {
 	if err != nil {
 		return err
 	}
-	return jsonmessage.DisplayJSONMessagesStream(rc, &i.logger, 0, isTerminal, nil)
+	err = jsonmessage.DisplayJSONMessagesStream(rc, &i.logger, 0, isTerminal, nil)
+	if err != nil {
+		return err
+	}
+	if conf.Registry != "" {
+		err = dockerClient.ImageTag(context.Background(), ref, conf.ImageName())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // build attempts to build the image.
