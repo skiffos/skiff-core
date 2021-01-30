@@ -34,7 +34,7 @@ func (o *OutStream) GetTtySize() (uint, uint) {
 }
 
 // NewOutStream returns a new OutStream object from a Writer
-func NewOutStream(out io.Writer) *OutStream {
+func NewOutStream(out io.Writer) io.Writer {
 	if out == nil {
 		return nil
 	}

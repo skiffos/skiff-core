@@ -65,10 +65,12 @@ func (h *HijackedIOStreamer) beginOutputStream() <-chan error {
 		var err error
 
 		// When TTY is ON, use regular copy
-		if h.OutputStream != nil && h.Tty {
-			_, err = io.Copy(h.OutputStream, h.Resp.Reader)
-		} else {
-			_, err = stdcopy.StdCopy(h.OutputStream, h.ErrorStream, h.Resp.Reader)
+		if h.OutputStream != nil {
+			if h.Tty {
+				_, err = io.Copy(h.OutputStream, h.Resp.Reader)
+			} else {
+				_, err = stdcopy.StdCopy(h.OutputStream, h.ErrorStream, h.Resp.Reader)
+			}
 		}
 
 		if err != nil {

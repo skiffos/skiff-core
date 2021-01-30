@@ -137,7 +137,8 @@ func (i *ImageSetup) Execute() (exError error) {
 	if i.config.Pull != nil {
 		if i.config.Pull.Policy == config.ConfigPullPolicy_IfBuildFails {
 			postBuildPull = true
-		} else if !exists || i.config.Pull.Policy == config.ConfigPullPolicy_Always {
+		} else if (!exists && i.config.Pull.Policy == config.ConfigPullPolicy_IfNotPresent) ||
+			i.config.Pull.Policy == config.ConfigPullPolicy_Always {
 			err := i.pull(dockerClient)
 			if err == nil {
 				return nil

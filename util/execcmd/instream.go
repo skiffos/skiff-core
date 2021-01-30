@@ -36,7 +36,7 @@ func (i *InStream) IsTty() bool {
 }
 
 // NewInStream returns a new InStream object from a ReadCloser
-func NewInStream(in io.Reader, close bool) *InStream {
+func NewInStream(in io.Reader, close bool) io.ReadCloser {
 	if in == nil {
 		return nil
 	}

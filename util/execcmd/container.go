@@ -19,7 +19,8 @@ func ExecCmdContainer(
 	in := NewInStream(stdIn, false)
 	out := NewOutStream(stdOut)
 	errOut := NewOutStream(stdErr)
-	useTty := in != nil && in.IsTty()
+	inStrm, _ := in.(*InStream)
+	useTty := inStrm != nil && inStrm.IsTty()
 
 	cmds := append([]string{cmd}, args...)
 	execCreate, err := dockerClient.ContainerExecCreate(ctx, containerID, types.ExecConfig{

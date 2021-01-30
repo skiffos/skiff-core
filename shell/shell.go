@@ -96,7 +96,10 @@ func (s *Shell) Execute(
 	in := execcmd.NewInStream(os.Stdin, true)
 	out := execcmd.NewOutStream(os.Stdout)
 	errOut := execcmd.NewOutStream(os.Stderr)
-	useTty := in.IsTty()
+	inStrm, _ := in.(*execcmd.InStream)
+	useTty := inStrm != nil && inStrm.IsTty()
+	outStrm, _ := out.(*execcmd.OutStream)
+	// errStrm, _ := errOut.(*execcmd.OutStream)
 
 	configPath := path.Join(s.homeDir, config.UserConfigFile)
 	logPath := path.Join(s.homeDir, config.UserLogFile)
@@ -218,15 +221,15 @@ func (s *Shell) Execute(
 			Tty:          useTty,
 		}
 		if useTty {
-			in.SetRawMode()
-			defer in.RestoreTerminal()
+			inStrm.SetRawMode()
+			defer inStrm.RestoreTerminal()
 		}
 
 		errCh <- streamer.Stream(ctx)
 	}()
 
-	if useTty && in.IsTerminal() {
-		if err := MonitorTtySize(ctx, dockerClient, out, execCreate.ID, true); err != nil {
+	if useTty && inStrm != nil && inStrm.IsTerminal() && outStrm != nil {
+		if err := MonitorTtySize(ctx, dockerClient, outStrm, execCreate.ID, true); err != nil {
 			log.WithError(err).Error("Error monitoring TTY size")
 		}
 	}
