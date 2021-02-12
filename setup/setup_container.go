@@ -45,8 +45,11 @@ func (cs *ContainerSetup) buildDockerContainer() *types.ContainerCreateConfig {
 	}
 	res.Config = containerConfig
 	for _, ev := range config.Env {
-		if ev.Name != "" {
-			containerConfig.Env = append(containerConfig.Env, fmt.Sprintf("%s:%s", ev.Name, ev.Value))
+		if len(ev) != 0 {
+			containerConfig.Env = append(
+				containerConfig.Env,
+				ev,
+			)
 		}
 	}
 	useInit := !config.DisableInit

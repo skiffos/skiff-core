@@ -72,8 +72,8 @@ type ConfigContainer struct {
 	Entrypoint []string `json:"entrypoint,omitempty" yaml:"entrypoint,omitempty"`
 	// CMD override
 	Cmd []string `json:"cmd,omitempty" yaml:"cmd,omitempty"`
-	// Any additional environment variables
-	Env []ConfigContainerEnvironmentVariable `json:"env,omitempty" yaml:"env,omitempty"`
+	// Additional environment variables in Key=Value form
+	Env []string `json:"env,omitempty" yaml:"env,omitempty"`
 	// Ports to expose, if not using net=host
 	Ports []ConfigContainerPort `json:"ports,omitempty" yaml:"ports,omitempty"`
 	// Additional DNS options
