@@ -152,6 +152,7 @@ func (cs *ContainerSetup) Execute() (execError error) {
 			cconf.Config,
 			cconf.HostConfig,
 			cconf.NetworkingConfig,
+			nil,
 			cconf.Name,
 		)
 		if err != nil {
