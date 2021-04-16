@@ -10,9 +10,9 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/paralin/skiff-core/builder"
-	"github.com/paralin/skiff-core/config"
-	"github.com/paralin/skiff-core/util/multiwriter"
+	"github.com/skiffos/skiff-core/builder"
+	"github.com/skiffos/skiff-core/config"
+	"github.com/skiffos/skiff-core/util/multiwriter"
 	log "github.com/sirupsen/logrus"
 )
 

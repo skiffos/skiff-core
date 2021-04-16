@@ -2,10 +2,10 @@
 
 [![GoDoc Widget]][GoDoc] [![Go Report Card Widget]][Go Report Card]
 
-[GoDoc]: https://godoc.org/github.com/paralin/skiff-core
-[GoDoc Widget]: https://godoc.org/github.com/paralin/skiff-core?status.svg
-[Go Report Card Widget]: https://goreportcard.com/badge/github.com/paralin/skiff-core
-[Go Report Card]: https://goreportcard.com/report/github.com/paralin/skiff-core
+[GoDoc]: https://godoc.org/github.com/skiffos/skiff-core
+[GoDoc Widget]: https://godoc.org/github.com/skiffos/skiff-core?status.svg
+[Go Report Card Widget]: https://goreportcard.com/badge/github.com/skiffos/skiff-core
+[Go Report Card]: https://goreportcard.com/report/github.com/skiffos/skiff-core
 
 ## Introduction
 

@@ -9,7 +9,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/signal"
-	"github.com/paralin/skiff-core/util/execcmd"
+	"github.com/skiffos/skiff-core/util/execcmd"
 )
 
 // resizeTtyTo resizes tty to specific height and width

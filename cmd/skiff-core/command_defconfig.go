@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/paralin/skiff-core/config"
+	"github.com/skiffos/skiff-core/config"
 	"github.com/urfave/cli"
 )
 

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os/user"
 
-	"github.com/paralin/skiff-core/shell"
+	"github.com/skiffos/skiff-core/shell"
 	"github.com/urfave/cli"
 )
 

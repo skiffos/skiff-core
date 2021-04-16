@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/paralin/skiff-core/config"
+	"github.com/skiffos/skiff-core/config"
 	log "github.com/sirupsen/logrus"
 )
 

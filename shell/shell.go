@@ -14,8 +14,8 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/hpcloud/tail"
 	"github.com/mgutz/str"
-	"github.com/paralin/skiff-core/config"
-	"github.com/paralin/skiff-core/util/execcmd"
+	"github.com/skiffos/skiff-core/config"
+	"github.com/skiffos/skiff-core/util/execcmd"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )

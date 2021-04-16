@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/paralin/skiff-core/util/execcmd"
+	"github.com/skiffos/skiff-core/util/execcmd"
 )
 
 // pathToSkiffCore returns the path to this executable.

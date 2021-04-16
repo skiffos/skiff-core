@@ -20,7 +20,7 @@ import (
 	"github.com/docker/docker/pkg/streamformatter"
 	sbbuilder "github.com/paralin/scratchbuild/builder"
 	"github.com/paralin/scratchbuild/stack"
-	"github.com/paralin/skiff-core/config"
+	"github.com/skiffos/skiff-core/config"
 	"golang.org/x/crypto/ssh/terminal"
 )
 

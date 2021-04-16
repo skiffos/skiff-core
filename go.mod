@@ -1,4 +1,4 @@
-module github.com/paralin/skiff-core
+module github.com/skiffos/skiff-core
 
 go 1.12
 

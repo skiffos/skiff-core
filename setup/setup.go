@@ -8,8 +8,8 @@ import (
 
 	"github.com/docker/docker/api/types"
 	dockerclient "github.com/docker/docker/client"
-	"github.com/paralin/skiff-core/config"
-	"github.com/paralin/skiff-core/util/execcmd"
+	"github.com/skiffos/skiff-core/config"
+	"github.com/skiffos/skiff-core/util/execcmd"
 	log "github.com/sirupsen/logrus"
 )
 
