@@ -111,60 +111,75 @@ func (cs *ContainerSetup) Execute() (execError error) {
 	}
 	defer dockerClient.Close()
 
-	// wait for the image to be ready
-	if err := cs.waiter.WaitForImage(config.Image, &cs.logger); err != nil {
-		return err
-	}
-
 	// check if the container exists
-	/*
-		filters := filters.NewArgs()
-		filters.Add("name", config.Name())
-	*/
-	list, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
-		All: true,
-		// Filters: filters,
-	})
-	if err != nil {
-		return err
-	}
-
 	le := log.WithField("name", config.Name())
-	for _, ctr := range list {
-		for _, name := range ctr.Names {
-			if name == config.Name() {
-				le.Debug("Container already exists")
-				cs.containerId = ctr.ID
-				return nil
+	checkContainerExists := func() (bool, error) {
+		list, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
+			All: true,
+		})
+		if err != nil {
+			return false, err
+		}
+
+		for _, ctr := range list {
+			for _, name := range ctr.Names {
+				if name == config.Name() {
+					le.Debug("Container already exists")
+					cs.containerId = ctr.ID
+					return true, nil
+				}
 			}
 		}
+		return false, nil
 	}
 
-	// create the container
-	cconf := cs.buildDockerContainer()
-	res, err := dockerClient.ContainerCreate(
-		context.Background(),
-		cconf.Config,
-		cconf.HostConfig,
-		cconf.NetworkingConfig,
-		cconf.Name,
-	)
-	if err != nil {
+	// createOrFindContainer returns nil only if cs.containerID contains the container ID.
+	createOrFindContainer := func() error {
+		if exists, err := checkContainerExists(); exists || err != nil {
+			return err
+		}
+
+		// wait for the image to be ready
+		if err := cs.waiter.WaitForImage(config.Image, &cs.logger); err != nil {
+			return err
+		}
+
+		if exists, err := checkContainerExists(); exists || err != nil {
+			return err
+		}
+
+		// create the container
+		cconf := cs.buildDockerContainer()
+		res, err := dockerClient.ContainerCreate(
+			context.Background(),
+			cconf.Config,
+			cconf.HostConfig,
+			cconf.NetworkingConfig,
+			cconf.Name,
+		)
+		if err != nil {
+			return err
+		}
+		le.WithField("id", res.ID).Debug("Container created")
+		for _, warning := range res.Warnings {
+			le.Warnf("Docker issued warning: %s", warning)
+		}
+		cs.containerId = res.ID
+		return nil
+	}
+
+	if err := createOrFindContainer(); err != nil {
 		return err
 	}
-	le.WithField("id", res.ID).Debug("Container created")
-	for _, warning := range res.Warnings {
-		le.Warnf("Docker issued warning: %s", warning)
-	}
-	cs.containerId = res.ID
 
-	cs.logger.Write([]byte("Container created with ID: "))
-	cs.logger.Write([]byte(res.ID))
+	containerID := cs.containerId
+	cs.logger.Write([]byte("Container created/found with ID: "))
+	cs.logger.Write([]byte(containerID))
 	cs.logger.Write([]byte("\n"))
 
 	if cs.config.StartAfterCreate {
-		cs.logger.Write([]byte("Starting container" + res.ID + "...\n"))
-		err = dockerClient.ContainerStart(context.Background(), res.ID, types.ContainerStartOptions{})
+		cs.logger.Write([]byte("Starting container" + containerID + "...\n"))
+		err = dockerClient.ContainerStart(context.Background(), containerID, types.ContainerStartOptions{})
 		if err != nil {
 			cs.logger.Write([]byte("Could not start container, continuing: " + err.Error() + "\n"))
 		}
