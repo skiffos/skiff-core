@@ -12,12 +12,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/skiffos/skiff-core/config"
 	log "github.com/sirupsen/logrus"
+	"github.com/skiffos/skiff-core/config"
 )
 
 // globalCreateContainerUserMtx prevents creating multiple users simultaneously.
 var globalCreateContainerUserMtx sync.Mutex
+
+// globalCreateHostUserMtx prevents creating multiple users simultaneously.
+var globalCreateHostUserMtx sync.Mutex
 
 // UserSetup sets up a container.
 type UserSetup struct {
@@ -57,58 +60,61 @@ func (cs *UserSetup) Execute() (execError error) {
 		return fmt.Errorf("User %s: no such container: %s", conf.Name(), conf.Container)
 	}
 
-	euser, eusererr := user.Lookup(conf.Name())
-	if eusererr != nil {
-		if _, ok := eusererr.(user.UnknownUserError); !ok {
-			return eusererr
-		}
-	}
-
 	le := log.WithField("user", conf.Name())
 	shellPath, err := pathToSkiffCore()
 	if err != nil {
 		return err
 	}
-	if euser == nil {
-		if !cs.create {
-			return fmt.Errorf("User %s: not found, and create-users is not enabled.", conf.Name())
-		}
 
-		// attempt to create the user
-		le.Debug("Creating user")
-		err = execCmd(
-			"adduser",
-			"-G",
-			"docker",
-			"-D",
-			//"-c",
-			// fmt.Sprintf("Skiff-Core user %s", cs.config.Name()),
-			// "-m",
-			"-s",
-			shellPath,
-			cs.config.Name(),
-		)
-		if err != nil {
-			return err
-		}
-		euser, err = user.Lookup(cs.config.Name())
-		if err != nil {
-			return err
-		}
-	} else {
-		// Set the shell for the user
-		le.WithField("path", shellPath).Debug("Setting shell")
-		if err := execCmd("chsh", "-s", shellPath, cs.config.Name()); err != nil {
-			return err
-		}
+	// ensure only one routine managing users at a time
+	euser, err := func() (*user.User, error) {
+		globalCreateHostUserMtx.Lock()
+		defer globalCreateHostUserMtx.Unlock()
 
-		// Add to the Docker group
-		/*
-			le.WithField("path", shellPath).Debug("Adding to Docker group")
-			if err := execCmd("chsh", "-s", shellPath, cs.config.Name()); err != nil {
-				return err
+		euser, eusererr := user.Lookup(conf.Name())
+		if eusererr != nil {
+			if _, ok := eusererr.(user.UnknownUserError); !ok {
+				return nil, eusererr
 			}
-		*/
+		}
+
+		if euser == nil {
+			if !cs.create {
+				return nil, fmt.Errorf("User %s: not found, and create-users is not enabled.", conf.Name())
+			}
+
+			// attempt to create the user
+			le.Debug("Creating user")
+			err = execCmd(
+				"adduser",
+				"-G",
+				"docker",
+				"-D",
+				//"-c",
+				// fmt.Sprintf("Skiff-Core user %s", cs.config.Name()),
+				// "-m",
+				"-s",
+				shellPath,
+				cs.config.Name(),
+			)
+			if err != nil {
+				return nil, err
+			}
+			euser, err = user.Lookup(cs.config.Name())
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// Set the shell for the user
+			le.WithField("path", shellPath).Debug("Setting shell")
+			if err := execCmd("chsh", "-s", shellPath, cs.config.Name()); err != nil {
+				return nil, err
+			}
+		}
+		return euser, nil
+	}()
+	if err != nil {
+		return err
 	}
 
 	uid, err := strconv.Atoi(euser.Uid)
