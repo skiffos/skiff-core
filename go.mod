@@ -2,6 +2,12 @@ module github.com/skiffos/skiff-core
 
 go 1.16
 
+// fix broken references to git.apache.org/thrift
+replace (
+	git.apache.org/thrift => github.com/apache/thrift v0.16.0 // latest
+	go.opencensus.io => go.opencensus.io v0.23.0 // latest
+)
+
 require (
 	github.com/docker/cli v20.10.14+incompatible
 	github.com/docker/docker v20.10.14+incompatible
