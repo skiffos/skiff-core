@@ -7,6 +7,7 @@ require (
 	github.com/docker/docker v20.10.14+incompatible
 	github.com/hpcloud/tail v1.0.0
 	github.com/mgutz/str v1.2.0
+	github.com/opencontainers/image-spec v1.0.2 // indirect
 	github.com/paralin/scratchbuild v1.0.3
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
