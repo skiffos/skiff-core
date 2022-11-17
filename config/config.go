@@ -182,6 +182,8 @@ type ConfigImageBuild struct {
 	Root string `json:"root,omitempty" yaml:"root,omitempty"`
 	// Dockerfile controls the path to the Dockerfile inside the repository/source.
 	Dockerfile string `json:"dockerfile,omitempty" yaml:"dockerfile,omitempty"`
+	// BuildArgs contains key/value build arguments to set in the Dockerfile.
+	BuildArgs map[string]*string `json:"buildArgs,omitempty" yaml:"buildArgs,omitempty"`
 	// PreserveIntermediate indicates we should preserve intermediate build containers.
 	PreserveIntermediate bool `json:"preserveIntermediate,omitempty" yaml:"preserveIntermediate,omitempty"`
 	// ScratchBuild indicates we need to patch the image tree to use arch-specific images.

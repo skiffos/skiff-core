@@ -161,6 +161,7 @@ func (b *Builder) dockerBuild(dockerClient client.APIClient, buildPath string, r
 		Dockerfile:  relDockerfile,
 		Tags:        []string{reference},
 		Squash:      b.config.Squash,
+		BuildArgs:   b.config.BuildArgs,
 	})
 	if err != nil {
 		return err
