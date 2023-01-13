@@ -9,7 +9,7 @@ replace (
 )
 
 require (
-	github.com/docker/cli v23.0.0-rc.1+incompatible
+	github.com/docker/cli v23.0.0-rc.2+incompatible
 	github.com/docker/docker v23.0.0-rc.1+incompatible
 	github.com/hpcloud/tail v1.0.0
 	github.com/mgutz/str v1.2.0
