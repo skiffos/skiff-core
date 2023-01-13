@@ -18,7 +18,7 @@ require (
 	github.com/sirupsen/logrus v1.9.0
 	github.com/urfave/cli v1.22.10
 	github.com/zloylos/grsync v1.7.0
-	golang.org/x/crypto v0.3.0
+	golang.org/x/crypto v0.5.0
 	gopkg.in/src-d/go-git.v4 v4.13.1
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -58,9 +58,9 @@ require (
 	github.com/src-d/gcfg v1.4.0 // indirect
 	github.com/xanzy/ssh-agent v0.2.1 // indirect
 	go.opencensus.io v0.23.0 // indirect
-	golang.org/x/net v0.2.0 // indirect
-	golang.org/x/sys v0.2.0 // indirect
-	golang.org/x/term v0.2.0 // indirect
+	golang.org/x/net v0.5.0 // indirect
+	golang.org/x/sys v0.4.0 // indirect
+	golang.org/x/term v0.4.0 // indirect
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/fsnotify.v1 v1.4.7 // indirect
