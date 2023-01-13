@@ -10,7 +10,7 @@ replace (
 
 require (
 	github.com/docker/cli v23.0.0-rc.2+incompatible
-	github.com/docker/docker v23.0.0-rc.1+incompatible
+	github.com/docker/docker v23.0.0-rc.2+incompatible
 	github.com/hpcloud/tail v1.0.0
 	github.com/mgutz/str v1.2.0
 	github.com/moby/term v0.0.0-20221205130635-1aeaba878587
@@ -21,6 +21,7 @@ require (
 	github.com/zloylos/grsync v1.7.0
 	golang.org/x/crypto v0.5.0
 	gopkg.in/src-d/go-git.v4 v4.13.1
+	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
