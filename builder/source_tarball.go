@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -51,7 +52,12 @@ func (b *Builder) fetchSourceTarball(destination, source string) error {
 			return err
 		}
 
-		// NOTE: can this ever be ../../something/dangerous ?
+		// NOTE: avoid zip slip vulnerability
+		name := hdr.Name
+		if strings.Contains(name, "..") {
+			return errors.Errorf("zip entry cannot contain ..: %s", name)
+		}
+
 		fdest := path.Join(destination, hdr.Name)
 		info := hdr.FileInfo()
 		if info.IsDir() {
