@@ -21,7 +21,7 @@ require (
 	github.com/zloylos/grsync v1.7.0
 	golang.org/x/crypto v0.5.0
 	gopkg.in/src-d/go-git.v4 v4.13.1
-	gopkg.in/yaml.v2 v2.4.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
