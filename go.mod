@@ -14,7 +14,7 @@ require (
 	github.com/hpcloud/tail v1.0.0
 	github.com/mgutz/str v1.2.0
 	github.com/moby/term v0.0.0-20221205130635-1aeaba878587
-	github.com/paralin/scratchbuild v1.1.2
+	github.com/paralin/scratchbuild v1.1.3
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.0
 	github.com/urfave/cli/v2 v2.23.7

@@ -566,8 +566,8 @@ github.com/opencontainers/selinux v1.6.0/go.mod h1:VVGKuOLlE7v4PJyT6h7mNWvq1rzqi
 github.com/opencontainers/selinux v1.8.0/go.mod h1:RScLhm78qiWa2gbVCcGkC7tCGdgk3ogry1nUQF8Evvo=
 github.com/opencontainers/selinux v1.8.2/go.mod h1:MUIHuUEvKB1wtJjQdOyYRgOnLD2xAPP8dBsCoU0KuF8=
 github.com/opencontainers/selinux v1.10.0/go.mod h1:2i0OySw99QjzBBQByd1Gr9gSjvuho1lHsJxIJ3gGbJI=
-github.com/paralin/scratchbuild v1.1.2 h1:rQwSm43NKHL5ah/zdlUabY1VRvuFQsl9p4TTDOZTsig=
-github.com/paralin/scratchbuild v1.1.2/go.mod h1:O5yR3oHZFck+GVjxCRNi9TeVYSJxKMFWsLDSQ38slPA=
+github.com/paralin/scratchbuild v1.1.3 h1:lp+dP2fkaCsqtHg3vf0S2emYMlMoSuz/aH+X7CZ8ayQ=
+github.com/paralin/scratchbuild v1.1.3/go.mod h1:8SNX8PTEZNFSt+gSxWzQ4nGkiOwN9IbAkW4eOP3lNNE=
 github.com/pelletier/go-buffruneio v0.2.0/go.mod h1:JkE26KsDizTr40EUHkXVtNPvgGtbSNq5BcowyYOWdKo=
 github.com/pelletier/go-toml v1.2.0/go.mod h1:5z9KED0ma1S8pY6P1sdut58dfprrGBbd/94hg7ilaic=
 github.com/pelletier/go-toml v1.8.1/go.mod h1:T2/BmBdy8dvIRq1a/8aqjN41wvWlN4lrapLU/GW4pbc=
