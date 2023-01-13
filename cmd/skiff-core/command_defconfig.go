@@ -9,7 +9,7 @@ import (
 )
 
 // DefconfigCommands define the commands for "defconfig"
-var DefconfigCommands cli.Commands = []cli.Command{
+var DefconfigCommands cli.Commands = []*cli.Command{
 	{
 		Name:  "defconfig",
 		Usage: "Writes the default config.",

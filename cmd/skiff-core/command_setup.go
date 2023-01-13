@@ -14,20 +14,20 @@ var setupArgs struct {
 }
 
 // SetupCommands define the commands for "setup"
-var SetupCommands cli.Commands = []cli.Command{
+var SetupCommands cli.Commands = []*cli.Command{
 	{
 		Flags: []cli.Flag{
-			cli.BoolFlag{
+			&cli.BoolFlag{
 				Name:        "create-users",
 				Usage:       "If set, core will attempt to create missing users.",
 				Destination: &setupArgs.CreateUsers,
-				EnvVar:      "SKIFF_CORE_CREATE_USERS",
+				EnvVars:     []string{"SKIFF_CORE_CREATE_USERS"},
 			},
-			cli.StringFlag{
+			&cli.StringFlag{
 				Name:        "work-dir",
 				Usage:       "If set, core will use the directory for working files.",
 				Destination: &setupArgs.WorkDir,
-				EnvVar:      "SKIFF_CORE_WORK_DIR",
+				EnvVars:     []string{"SKIFF_CORE_WORK_DIR"},
 			},
 		},
 		Name:  "setup",

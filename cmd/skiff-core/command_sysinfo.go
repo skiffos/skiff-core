@@ -9,7 +9,7 @@ import (
 )
 
 // DefconfigCommands define the commands for "defconfig"
-var SysInfoCommands cli.Commands = []cli.Command{
+var SysInfoCommands cli.Commands = []*cli.Command{
 	{
 		Name:  "sysinfo",
 		Usage: "Prints detected system information.",

@@ -45,7 +45,10 @@ func main() {
 	log.SetLevel(log.DebugLevel)
 
 	app := cli.NewApp()
-	app.Author = "Christian Stewart <christian@paral.in>"
+	app.Authors = []*cli.Author{{
+		Name:  "Christian Stewart",
+		Email: "christian@aperture.us",
+	}}
 	app.Usage = "Manages user environment containers."
 	app.Version = gitCommit
 	if gitCommit == "unknown" {
@@ -57,13 +60,13 @@ func main() {
 	app.Commands = append(app.Commands, SysInfoCommands...)
 	app.Commands = append(app.Commands, ScratchBuildCommands...)
 	app.Flags = []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:        "config",
-			Usage:       "Config path (.yaml)",
+			Usage:       "skiff-core config yaml (.yaml)",
 			Destination: &globalFlags.ConfigPath,
 			Value:       "config.yaml",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:        "command, c",
 			Usage:       "Command override when calling as a shell.",
 			Destination: &globalFlags.Command,
