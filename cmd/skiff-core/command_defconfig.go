@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/skiffos/skiff-core/config"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 // DefconfigCommands define the commands for "defconfig"

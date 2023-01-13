@@ -3,7 +3,7 @@ package execcmd
 import (
 	"io"
 
-	"github.com/docker/docker/pkg/term"
+	"github.com/moby/term"
 )
 
 // InStream is an input stream used by the DockerCli to read user input

@@ -1,7 +1,7 @@
 package execcmd
 
 import (
-	"github.com/docker/docker/pkg/term"
+	"github.com/moby/term"
 )
 
 // CommonStream is an input stream used by the DockerCli to read user input

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/skiffos/skiff-core/setup"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var setupArgs struct {

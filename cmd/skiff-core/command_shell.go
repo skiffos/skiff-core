@@ -5,11 +5,11 @@ import (
 	"os/user"
 
 	"github.com/skiffos/skiff-core/shell"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 // ShellCommands define the commands for "shell"
-var ShellCommands cli.Commands = []cli.Command{
+var ShellCommands cli.Commands = []*cli.Command{
 	{
 		Name:  "shell",
 		Usage: "Runs skiff-core in shell mode.",

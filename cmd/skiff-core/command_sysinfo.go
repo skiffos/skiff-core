@@ -5,7 +5,7 @@ import (
 	"runtime"
 
 	"github.com/paralin/scratchbuild/arch"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 // DefconfigCommands define the commands for "defconfig"
