@@ -34,6 +34,8 @@ github.com/docker-library/go-dockerlibrary v0.0.0-20200821205225-669fbe5c1d52 h1
 github.com/docker-library/go-dockerlibrary v0.0.0-20200821205225-669fbe5c1d52/go.mod h1:ijRhN3WM71dD8TfohKoUdX46BT2uz/Ek5O+5PINI880=
 github.com/docker/cli v23.0.0-rc.1+incompatible h1:Vl3pcUK4/LFAD56Ys3BrqgAtuwpWd/IO3amuSL0ZbP0=
 github.com/docker/cli v23.0.0-rc.1+incompatible/go.mod h1:JLrzqnKDaYBop7H2jaqPtU4hHvMKP+vjCwu2uszcLI8=
+github.com/docker/cli v23.0.0-rc.2+incompatible h1:CEOrg0g6CrXKtg40kTleFJPLKXLMLevEesg/hO4ehM4=
+github.com/docker/cli v23.0.0-rc.2+incompatible/go.mod h1:JLrzqnKDaYBop7H2jaqPtU4hHvMKP+vjCwu2uszcLI8=
 github.com/docker/distribution v2.8.1+incompatible h1:Q50tZOPR6T/hjNsyc9g8/syEs6bk8XXApsHjKukMl68=
 github.com/docker/distribution v2.8.1+incompatible/go.mod h1:J2gT2udsDAN96Uj4KfcMRqY0/ypR+oyYUYmja8H+y+w=
 github.com/docker/docker v23.0.0-rc.1+incompatible h1:Dmn88McWuHc7BSNN1s6RtfhMmt6ZPQAYUEf7FhqpiQI=
