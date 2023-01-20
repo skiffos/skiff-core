@@ -10,7 +10,7 @@ replace (
 
 require (
 	github.com/docker/cli v20.10.22+incompatible
-	github.com/docker/docker v20.10.22+incompatible
+	github.com/docker/docker v20.10.23+incompatible
 	github.com/hpcloud/tail v1.0.0
 	github.com/mgutz/str v1.2.0
 	github.com/moby/term v0.0.0-20221205130635-1aeaba878587
