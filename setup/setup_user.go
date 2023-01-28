@@ -238,7 +238,7 @@ func (cs *UserSetup) Execute() (execError error) {
 		globalCreateContainerUserMtx.Lock()
 		// Check if user exists.
 		var outp bytes.Buffer
-		err := cs.waiter.ExecCmdContainer(
+		_ = cs.waiter.ExecCmdContainer(
 			containerId,
 			"root",
 			nil, nil, &outp, // catch stderr only
