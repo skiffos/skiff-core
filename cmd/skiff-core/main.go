@@ -67,7 +67,8 @@ func main() {
 			Value:       "config.yaml",
 		},
 		&cli.StringFlag{
-			Name:        "command, c",
+			Name:        "command",
+			Aliases:     []string{"c"},
 			Usage:       "Command override when calling as a shell.",
 			Destination: &globalFlags.Command,
 		},
