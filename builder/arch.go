@@ -1,12 +1,14 @@
+//go:build linux
 // +build linux
 
 package builder
 
 import (
-	log "github.com/sirupsen/logrus"
-	"github.com/paralin/scratchbuild/arch"
 	"runtime"
 	"syscall"
+
+	"github.com/paralin/scratchbuild/arch"
+	log "github.com/sirupsen/logrus"
 )
 
 // detectMachineId returns uname -m or GOARCH

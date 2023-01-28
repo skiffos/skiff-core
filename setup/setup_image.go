@@ -10,10 +10,10 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
+	log "github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/builder"
 	"github.com/skiffos/skiff-core/config"
 	"github.com/skiffos/skiff-core/util/multiwriter"
-	log "github.com/sirupsen/logrus"
 )
 
 // ImageSetup is responsible for setting up an image.

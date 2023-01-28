@@ -1,12 +1,12 @@
+//go:build !linux
 // +build !linux
 
 package builder
 
 import (
-	log "github.com/sirupsen/logrus"
-	"github.com/paralin/scratchbuild/arch"
 	"runtime"
-	"syscall"
+
+	"github.com/paralin/scratchbuild/arch"
 )
 
 // detectArch attempts to detect the arch

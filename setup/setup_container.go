@@ -9,9 +9,9 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	log "github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
 	"github.com/skiffos/skiff-core/util/multiwriter"
-	log "github.com/sirupsen/logrus"
 )
 
 // ContainerSetup sets up a container.

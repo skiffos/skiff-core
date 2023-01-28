@@ -1,9 +1,10 @@
 package builder
 
 import (
+	"os"
+
 	log "github.com/sirupsen/logrus"
 	git "gopkg.in/src-d/go-git.v4"
-	"os"
 )
 
 // fetchSourceGit attempts to fetch source by git cloning.

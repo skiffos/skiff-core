@@ -14,10 +14,10 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/hpcloud/tail"
 	"github.com/mgutz/str"
-	"github.com/skiffos/skiff-core/config"
-	"github.com/skiffos/skiff-core/util/execcmd"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"github.com/skiffos/skiff-core/config"
+	"github.com/skiffos/skiff-core/util/execcmd"
 )
 
 // Shell holds an instance of a user's interaction with a Docker container.
