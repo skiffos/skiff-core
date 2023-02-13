@@ -9,7 +9,7 @@ replace (
 )
 
 require (
-	github.com/docker/cli v20.10.22+incompatible
+	github.com/docker/cli v23.0.1+incompatible
 	github.com/docker/docker v20.10.22+incompatible
 	github.com/hpcloud/tail v1.0.0
 	github.com/mgutz/str v1.2.0
@@ -44,6 +44,7 @@ require (
 	github.com/kevinburke/ssh_config v0.0.0-20190725054713-01f96b0aa0cd // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/moby/buildkit v0.10.0 // indirect
+	github.com/moby/patternmatcher v0.5.0 // indirect
 	github.com/moby/sys/mount v0.3.0 // indirect
 	github.com/moby/sys/mountinfo v0.6.0 // indirect
 	github.com/moby/sys/symlink v0.2.0 // indirect
