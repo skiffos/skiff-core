@@ -25,12 +25,12 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/docker-library/go-dockerlibrary v0.0.0-20200821205225-669fbe5c1d52 h1:Z3GnSICOyARBY/IBnOWtNN8N4AVRRDWxPEH28AM8wsg=
 github.com/docker-library/go-dockerlibrary v0.0.0-20200821205225-669fbe5c1d52/go.mod h1:ijRhN3WM71dD8TfohKoUdX46BT2uz/Ek5O+5PINI880=
-github.com/docker/cli v24.0.4+incompatible h1:Y3bYF9ekNTm2VFz5U/0BlMdJy73D+Y1iAAZ8l63Ydzw=
-github.com/docker/cli v24.0.4+incompatible/go.mod h1:JLrzqnKDaYBop7H2jaqPtU4hHvMKP+vjCwu2uszcLI8=
+github.com/docker/cli v24.0.5-0.20230715131633-9edd9a1f2f0a+incompatible h1:IcRCo8P1OADd+ajjGRwajcblzqZMki1X/glkerCJkdY=
+github.com/docker/cli v24.0.5-0.20230715131633-9edd9a1f2f0a+incompatible/go.mod h1:JLrzqnKDaYBop7H2jaqPtU4hHvMKP+vjCwu2uszcLI8=
 github.com/docker/distribution v2.8.2+incompatible h1:T3de5rq0dB1j30rp0sA2rER+m322EBzniBPB6ZIzuh8=
 github.com/docker/distribution v2.8.2+incompatible/go.mod h1:J2gT2udsDAN96Uj4KfcMRqY0/ypR+oyYUYmja8H+y+w=
-github.com/docker/docker v24.0.4+incompatible h1:s/LVDftw9hjblvqIeTiGYXBCD95nOEEl7qRsRrIOuQI=
-github.com/docker/docker v24.0.4+incompatible/go.mod h1:eEKB0N0r5NX/I1kEveEz05bcu8tLC/8azJZsviup8Sk=
+github.com/docker/docker v24.0.5-0.20230714235725-36e9e796c6fc+incompatible h1:sdGvA1bxu/1J51gAs1XU0bZC+2WxncYnI210as3c6g8=
+github.com/docker/docker v24.0.5-0.20230714235725-36e9e796c6fc+incompatible/go.mod h1:eEKB0N0r5NX/I1kEveEz05bcu8tLC/8azJZsviup8Sk=
 github.com/docker/go-connections v0.4.0 h1:El9xVISelRB7BuFusrZozjnkIM5YnzCViNKohAFqRJQ=
 github.com/docker/go-connections v0.4.0/go.mod h1:Gbd7IOopHjR8Iph03tsViu4nIes5XhDvyHbTtUxmeec=
 github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4=

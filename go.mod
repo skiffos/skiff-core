@@ -9,8 +9,8 @@ replace (
 )
 
 require (
-	github.com/docker/cli v24.0.4+incompatible
-	github.com/docker/docker v24.0.4+incompatible
+	github.com/docker/cli v24.0.5-0.20230715131633-9edd9a1f2f0a+incompatible // v24.0
+	github.com/docker/docker v24.0.5-0.20230714235725-36e9e796c6fc+incompatible // v24.0
 	github.com/hpcloud/tail v1.0.0
 	github.com/mgutz/str v1.2.0
 	github.com/moby/sys/signal v0.7.0
