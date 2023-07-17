@@ -15,14 +15,14 @@ require (
 	github.com/mgutz/str v1.2.0
 	github.com/moby/sys/signal v0.7.0
 	github.com/moby/term v0.5.0
-	github.com/paralin/scratchbuild v1.0.2
+	github.com/paralin/scratchbuild v1.1.3
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.25.7
 	github.com/zloylos/grsync v1.7.0
 	golang.org/x/crypto v0.11.0
 	gopkg.in/src-d/go-git.v4 v4.13.1
-	gopkg.in/yaml.v2 v2.4.0
+	gopkg.in/yaml.v3 v3.0.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
