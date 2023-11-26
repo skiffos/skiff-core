@@ -1,13 +1,12 @@
 package main
 
 import (
-	"io/ioutil"
 	"os"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
 	"github.com/urfave/cli/v2"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 var gitCommit string = "unknown"
@@ -18,7 +17,7 @@ var globalFlags struct {
 }
 
 func parseGlobalConfig() (*config.Config, error) {
-	configData, err := ioutil.ReadFile(globalFlags.ConfigPath)
+	configData, err := os.ReadFile(globalFlags.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +37,7 @@ func writeGlobalConfig(conf *config.Config) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(globalFlags.ConfigPath, data, 0644)
+	return os.WriteFile(globalFlags.ConfigPath, data, 0644)
 }
 
 func main() {
@@ -81,5 +80,8 @@ func main() {
 		// Detected shell mode, execute as shell.
 		return ShellCommands[0].Run(c)
 	}
-	app.RunAndExitOnError()
+	if err := app.Run(os.Args); err != nil {
+		os.Stderr.WriteString(err.Error() + "\n")
+		os.Exit(1)
+	}
 }
