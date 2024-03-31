@@ -15,11 +15,7 @@
       "enabled": false
     },
     {
-      "matchPackageNames": ["github.com/libp2p/go-libp2p"],
-      "allowedVersions": ["^v0.*"]
-    },
-    {
-      "matchPackageNames": ["github.com/pauleyj/gobee"],
+      "matchPackageNames": ["github.com/docker/docker", "github.com/docker/cli"],
       "enabled": false
     }
   ]
