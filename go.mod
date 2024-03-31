@@ -3,7 +3,7 @@ module github.com/skiffos/skiff-core
 go 1.20
 
 require (
-	github.com/docker/cli v24.0.7+incompatible
+	github.com/docker/cli v24.0.9+incompatible
 	github.com/docker/docker v24.0.9+incompatible
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/hpcloud/tail v1.0.0
