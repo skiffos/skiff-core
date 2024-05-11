@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	rsync "github.com/zloylos/grsync"
+	rsync "github.com/skiffos/skiff-core/grsync"
 )
 
 // fetchSourceRsync copies from a local path to the destination.
