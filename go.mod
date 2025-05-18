@@ -1,6 +1,6 @@
 module github.com/skiffos/skiff-core
 
-go 1.20
+go 1.24.3
 
 require (
 	github.com/docker/cli v24.0.9+incompatible
