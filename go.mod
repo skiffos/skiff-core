@@ -8,12 +8,13 @@ require (
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/hpcloud/tail v1.0.0
 	github.com/mgutz/str v1.2.0
-	github.com/moby/sys/signal v0.7.0
-	github.com/moby/term v0.5.0
+	github.com/moby/sys/signal v0.7.1
+	github.com/moby/term v0.5.2
 	github.com/paralin/scratchbuild v1.3.1
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
-	github.com/urfave/cli/v2 v2.27.2
+	github.com/urfave/cli/v2 v2.27.1
+	github.com/urfave/cli/v3 v3.3.3
 	github.com/zloylos/grsync v1.7.0
 	golang.org/x/crypto v0.23.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -21,7 +22,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
-	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
+	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/ProtonMail/go-crypto v1.0.0 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
