@@ -53,6 +53,33 @@ func (s *Shell) loadUserConfig(configPath string) (*config.ConfigUserShell, erro
 // defaultShell is the default shell to use if nothing else is found.
 var defaultShell = []string{"/bin/sh"}
 
+const sftpServerShim = `for p in /usr/lib/openssh/sftp-server /usr/libexec/sftp-server /usr/lib/ssh/sftp-server; do
+	if [ -x "$p" ]; then
+		exec "$p" "$@"
+	fi
+done
+if command -v sftp-server >/dev/null 2>&1; then
+	exec sftp-server "$@"
+fi
+echo "skiff-core: no sftp-server found in container" >&2
+exit 127`
+
+func buildSSHSubsystemCmd(inputCmd string) ([]string, bool) {
+	inputArgv := str.ToArgv(inputCmd)
+	if len(inputArgv) == 0 {
+		return nil, false
+	}
+
+	switch path.Base(inputArgv[0]) {
+	case "sftp-server", "internal-sftp":
+		targetCmd := []string{"/bin/sh", "-c", sftpServerShim, path.Base(inputArgv[0])}
+		targetCmd = append(targetCmd, inputArgv[1:]...)
+		return targetCmd, true
+	default:
+		return nil, false
+	}
+}
+
 // buildTargetCmd builds the full command to pass to docker, wrapping with shell.
 func (s *Shell) buildTargetCmd(
 	userConfig *config.ConfigUserShell,
@@ -67,6 +94,10 @@ func (s *Shell) buildTargetCmd(
 
 	// Setup the command based on the given.
 	if len(inputCmd) != 0 {
+		if subsystemCmd, ok := buildSSHSubsystemCmd(inputCmd); ok {
+			return subsystemCmd, nil
+		}
+
 		if execWithShell {
 			targetCmd = make([]string, len(userShell)+2)
 			copy(targetCmd, userShell)
