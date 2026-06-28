@@ -12,8 +12,9 @@ require (
 	github.com/moby/term v0.5.2
 	github.com/paralin/scratchbuild v1.3.1
 	github.com/pkg/errors v0.9.1
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/urfave/cli/v2 v2.27.1
+	github.com/urfave/cli/v3 v3.10.1
 	golang.org/x/crypto v0.23.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -54,7 +55,7 @@ require (
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.2.2 // indirect
-	github.com/stretchr/testify v1.10.0 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xrash/smetrics v0.0.0-20240312152122-5f08fbb34913 // indirect
 	golang.org/x/mod v0.14.0 // indirect
