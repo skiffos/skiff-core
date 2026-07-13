@@ -1,60 +1,63 @@
 package builder
 
 import (
-	"io/ioutil"
 	"os"
 	"sync"
 
 	"github.com/paralin/scratchbuild/library"
 )
 
-// libraryCache makes sure we clone the library just once.
 type libraryCache struct {
-	mtx      sync.Mutex
+	// mtx guards all fields
+	mtx sync.Mutex
+	// refCount is the number of active builders
 	refCount int
-	path     string
-	lib      *library.LibraryResolver
+	// path is the temporary library cache directory
+	path string
+	// library is the shared resolver
+	library *library.LibraryResolver
 }
 
 var globalLibraryCache = &libraryCache{}
 
-// GetLibrary gets the library instance.
-func (lr *libraryCache) GetLibrary() (*library.LibraryResolver, error) {
-	lr.mtx.Lock()
-	defer lr.mtx.Unlock()
+func (c *libraryCache) get() (*library.LibraryResolver, error) {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
 
-	if lr.refCount == 0 {
-		p, err := ioutil.TempDir("", "skiff-core-scratch-")
-		if err != nil {
-			return nil, err
-		}
-		lr.path = p
-	} else {
-		lr.refCount++
-		return lr.lib, nil
+	if c.refCount > 0 {
+		c.refCount++
+		return c.library, nil
 	}
 
-	lib, err := library.BuildLibraryResolver(lr.path)
+	path, err := os.MkdirTemp("", "skiff-core-scratch-")
 	if err != nil {
 		return nil, err
 	}
-	lr.lib = lib
-	lr.refCount++
-	return lib, nil
+	libraryResolver, err := library.BuildLibraryResolver(path)
+	if err != nil {
+		os.RemoveAll(path)
+		return nil, err
+	}
+	c.path = path
+	c.library = libraryResolver
+	c.refCount = 1
+	return libraryResolver, nil
 }
 
-// Release decrements the refCount
-func (lr *libraryCache) Release() {
-	lr.mtx.Lock()
-	defer lr.mtx.Unlock()
+func (c *libraryCache) release() error {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
 
-	if lr.refCount == 0 {
-		return
+	if c.refCount == 0 {
+		return nil
+	}
+	c.refCount--
+	if c.refCount != 0 {
+		return nil
 	}
 
-	lr.refCount--
-	if lr.refCount == 0 {
-		os.RemoveAll(lr.path)
-		lr.path = ""
-	}
+	path := c.path
+	c.path = ""
+	c.library = nil
+	return os.RemoveAll(path)
 }

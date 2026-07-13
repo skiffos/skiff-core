@@ -1,56 +1,67 @@
 package shell
 
 import (
-	"os"
-	gosignal "os/signal"
-
 	"context"
+	"os"
+	osSignal "os/signal"
 
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/moby/sys/signal"
+	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/util/execcmd"
 )
 
-// resizeTtyTo resizes tty to specific height and width
-func resizeTtyTo(ctx context.Context, client client.ContainerAPIClient, id string, height, width uint, isExec bool) {
+func resizeTTYTo(
+	ctx context.Context,
+	dockerClient client.ContainerAPIClient,
+	id string,
+	height uint,
+	width uint,
+	isExec bool,
+) error {
 	if height == 0 && width == 0 {
-		return
+		return nil
 	}
 
-	options := types.ResizeOptions{
-		Height: height,
-		Width:  width,
-	}
-
-	var err error
+	options := container.ResizeOptions{Height: height, Width: width}
 	if isExec {
-		err = client.ContainerExecResize(ctx, id, options)
-	} else {
-		err = client.ContainerResize(ctx, id, options)
+		return dockerClient.ContainerExecResize(ctx, id, options)
 	}
-
-	_ = err // Ignore this error for now.
-	/*
-		if err != nil {
-		}
-	*/
+	return dockerClient.ContainerResize(ctx, id, options)
 }
 
-// MonitorTtySize updates the container tty size when the terminal tty changes size
-func MonitorTtySize(ctx context.Context, client client.APIClient, out *execcmd.OutStream, id string, isExec bool) error {
-	resizeTty := func() {
-		height, width := out.GetTtySize()
-		resizeTtyTo(ctx, client, id, height, width, isExec)
+// MonitorTTYSize updates a container TTY until ctx ends.
+func MonitorTTYSize(
+	ctx context.Context,
+	le *logrus.Entry,
+	dockerClient client.APIClient,
+	out *execcmd.OutStream,
+	id string,
+	isExec bool,
+) error {
+	resizeTTY := func() error {
+		height, width := out.GetTTYSize()
+		return resizeTTYTo(ctx, dockerClient, id, height, width, isExec)
 	}
 
-	resizeTty()
+	if err := resizeTTY(); err != nil {
+		return err
+	}
 
-	sigchan := make(chan os.Signal, 1)
-	gosignal.Notify(sigchan, signal.SIGWINCH)
+	sigCh := make(chan os.Signal, 1)
+	osSignal.Notify(sigCh, signal.SIGWINCH)
 	go func() {
-		for range sigchan {
-			resizeTty()
+		defer osSignal.Stop(sigCh)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sigCh:
+				if err := resizeTTY(); err != nil && ctx.Err() == nil {
+					le.WithError(err).Debug("resize container TTY")
+				}
+			}
 		}
 	}()
 

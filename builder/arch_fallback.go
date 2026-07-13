@@ -1,5 +1,4 @@
 //go:build !linux
-// +build !linux
 
 package builder
 
@@ -7,10 +6,10 @@ import (
 	"runtime"
 
 	"github.com/paralin/scratchbuild/arch"
+	"github.com/sirupsen/logrus"
 )
 
-// detectArch attempts to detect the arch
-func detectArch() arch.KnownArch {
-	a, _ := arch.ParseArch(runtime.GOARCH)
-	return a
+func detectArch(_ *logrus.Entry) arch.KnownArch {
+	knownArch, _ := arch.ParseArch(runtime.GOARCH)
+	return knownArch
 }

@@ -1,9 +1,8 @@
 package execcmd
 
 import (
-	"io"
-
 	"context"
+	"io"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -11,22 +10,27 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// HijackedIOStreamer handles copying input to and output from streams to the
-// connection.
+// HijackedIOStreamer copies input and output over a Docker hijacked connection.
 type HijackedIOStreamer struct {
 	InputStream  io.ReadCloser
 	OutputStream io.Writer
 	ErrorStream  io.Writer
+	Resp         types.HijackedResponse
+	TTY          bool
 
-	Resp types.HijackedResponse
-
-	Tty bool
+	le *logrus.Entry
 }
 
-// Stream handles setting up the IO and then begins streaming stdin/stdout
-// to/from the hijacked connection, blocking until it is either done reading
-// output, the user inputs the detach key sequence when in TTY mode, or when
-// the given context is cancelled.
+// NewHijackedIOStreamer constructs a streamer for a Docker hijacked connection.
+func NewHijackedIOStreamer(
+	le *logrus.Entry,
+	resp types.HijackedResponse,
+	useTTY bool,
+) *HijackedIOStreamer {
+	return &HijackedIOStreamer{le: le, Resp: resp, TTY: useTTY}
+}
+
+// Stream copies stdin, stdout, and stderr until the command, input, or context ends.
 func (h *HijackedIOStreamer) Stream(ctx context.Context) error {
 	outputDone := h.beginOutputStream()
 	inputDone, detached := h.beginInputStream()
@@ -35,9 +39,7 @@ func (h *HijackedIOStreamer) Stream(ctx context.Context) error {
 	case err := <-outputDone:
 		return err
 	case <-inputDone:
-		// Input stream has closed.
 		if h.OutputStream != nil || h.ErrorStream != nil {
-			// Wait for output to complete streaming.
 			select {
 			case err := <-outputDone:
 				return err
@@ -47,7 +49,6 @@ func (h *HijackedIOStreamer) Stream(ctx context.Context) error {
 		}
 		return nil
 	case err := <-detached:
-		// Got a detach key sequence.
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
@@ -56,60 +57,56 @@ func (h *HijackedIOStreamer) Stream(ctx context.Context) error {
 
 func (h *HijackedIOStreamer) beginOutputStream() <-chan error {
 	if h.OutputStream == nil && h.ErrorStream == nil {
-		// There is no need to copy output.
 		return nil
 	}
 
-	outputDone := make(chan error)
+	outputDone := make(chan error, 1)
 	go func() {
 		var err error
-
-		// When TTY is ON, use regular copy
-		if h.OutputStream != nil {
-			if h.Tty {
-				_, err = io.Copy(h.OutputStream, h.Resp.Reader)
-			} else {
-				_, err = stdcopy.StdCopy(h.OutputStream, h.ErrorStream, h.Resp.Reader)
+		if h.TTY {
+			output := h.OutputStream
+			if output == nil {
+				output = h.ErrorStream
 			}
+			_, err = io.Copy(output, h.Resp.Reader)
+		} else {
+			output := h.OutputStream
+			if output == nil {
+				output = io.Discard
+			}
+			errorOutput := h.ErrorStream
+			if errorOutput == nil {
+				errorOutput = io.Discard
+			}
+			_, err = stdcopy.StdCopy(output, errorOutput, h.Resp.Reader)
 		}
-
 		if err != nil {
-			logrus.Debugf("Error receiveStdout: %s", err)
+			h.le.WithError(err).Debug("receive stdout")
 		}
-
 		outputDone <- err
 	}()
-
 	return outputDone
 }
 
-func (h *HijackedIOStreamer) beginInputStream() (doneC <-chan struct{}, detachedC <-chan error) {
+func (h *HijackedIOStreamer) beginInputStream() (<-chan struct{}, <-chan error) {
 	inputDone := make(chan struct{})
-	detached := make(chan error)
-
+	detached := make(chan error, 1)
 	go func() {
 		if h.InputStream != nil {
 			_, err := io.Copy(h.Resp.Conn, h.InputStream)
-
 			if _, ok := err.(term.EscapeError); ok {
 				detached <- err
 				return
 			}
-
 			if err != nil {
-				// This error will also occur on the receive
-				// side (from stdout) where it will be
-				// propogated back to the caller.
-				logrus.Debugf("Error sendStdin: %s", err)
+				// The receive side normally returns the same connection error.
+				h.le.WithError(err).Debug("send stdin")
 			}
 		}
-
 		if err := h.Resp.CloseWrite(); err != nil {
-			logrus.Debugf("Couldn't send EOF: %s", err)
+			h.le.WithError(err).Debug("send EOF")
 		}
-
 		close(inputDone)
 	}()
-
 	return inputDone, detached
 }

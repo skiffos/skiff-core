@@ -1,26 +1,27 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
+	"github.com/aperturerobotics/cli"
+	"github.com/pkg/errors"
 	"github.com/skiffos/skiff-core/config"
-	"github.com/urfave/cli/v2"
 )
 
-// DefconfigCommands define the commands for "defconfig"
-var DefconfigCommands cli.Commands = []*cli.Command{
-	{
+func buildDefconfigCommand(args *appArgs) *cli.Command {
+	return &cli.Command{
 		Name:  "defconfig",
-		Usage: "Writes the default config.",
-		Action: func(c *cli.Context) error {
-			path := globalFlags.ConfigPath
-			if _, err := os.Stat(path); !os.IsNotExist(err) {
-				return fmt.Errorf("Path %s already exists, not overwriting.", path)
+		Usage: "Write the default config.",
+		Action: func(*cli.Context) error {
+			_, err := os.Stat(args.configPath)
+			switch {
+			case err == nil:
+				return errors.Errorf("path already exists, not overwriting: %s", args.configPath)
+			case !os.IsNotExist(err):
+				return errors.Wrap(err, "inspect config path")
 			}
 
-			defConf := config.DefaultConfig()
-			return writeGlobalConfig(defConf)
+			return args.writeConfig(config.DefaultConfig())
 		},
-	},
+	}
 }

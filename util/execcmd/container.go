@@ -4,30 +4,35 @@ import (
 	"context"
 	"io"
 
-	"github.com/docker/docker/api/types"
-	dockerclient "github.com/docker/docker/client"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
+	"github.com/sirupsen/logrus"
 )
 
-// ExecCmdContainer executes a command in a Docker container.
+// ExecCmdContainer executes a command in a Docker container and returns its exit status.
 func ExecCmdContainer(
 	ctx context.Context,
-	dockerClient *dockerclient.Client,
-	containerID, userID string,
-	stdIn io.Reader, stdOut, stdErr io.Writer,
-	cmd string, args ...string,
+	le *logrus.Entry,
+	dockerClient client.APIClient,
+	containerID string,
+	userID string,
+	stdIn io.Reader,
+	stdOut io.Writer,
+	stdErr io.Writer,
+	cmd string,
+	args ...string,
 ) error {
 	in := NewInStream(stdIn, false)
-	out := NewOutStream(stdOut)
-	errOut := NewOutStream(stdErr)
-	inStrm, _ := in.(*InStream)
-	useTty := inStrm != nil && inStrm.IsTty()
+	out := NewOutStream(le, stdOut)
+	errOut := NewOutStream(le, stdErr)
+	inStream, _ := in.(*InStream)
+	useTTY := inStream != nil && inStream.IsTTY()
 
-	cmds := append([]string{cmd}, args...)
-	execCreate, err := dockerClient.ContainerExecCreate(ctx, containerID, types.ExecConfig{
-		Tty:  useTty,
+	command := append([]string{cmd}, args...)
+	execCreate, err := dockerClient.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+		Tty:  useTTY,
 		User: userID,
-		Cmd:  cmds,
-		// Env: ...,
+		Cmd:  command,
 
 		AttachStdin:  stdIn != nil,
 		AttachStdout: stdOut != nil,
@@ -37,26 +42,26 @@ func ExecCmdContainer(
 		return err
 	}
 
-	conn, err := dockerClient.ContainerExecAttach(ctx, execCreate.ID, types.ExecStartCheck{
-		Tty: useTty,
+	conn, err := dockerClient.ContainerExecAttach(ctx, execCreate.ID, container.ExecAttachOptions{
+		Tty: useTTY,
 	})
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	strm := &HijackedIOStreamer{
-		Resp: conn,
-		Tty:  useTty,
-	}
+	streamer := NewHijackedIOStreamer(le, conn, useTTY)
 	if in != nil {
-		strm.InputStream = in
+		streamer.InputStream = in
 	}
 	if out != nil {
-		strm.OutputStream = out
+		streamer.OutputStream = out
 	}
 	if errOut != nil {
-		strm.ErrorStream = errOut
+		streamer.ErrorStream = errOut
 	}
-	return strm.Stream(ctx)
+	if err := streamer.Stream(ctx); err != nil {
+		return err
+	}
+	return InspectExecExit(ctx, dockerClient, execCreate.ID)
 }

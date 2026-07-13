@@ -1,87 +1,104 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"os"
+	osSignal "os/signal"
+	"strings"
+	"syscall"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/aperturerobotics/cli"
+	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
-	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )
 
-var gitCommit string = "unknown"
+// gitCommit is set at build time.
+var gitCommit = "unknown"
 
-var globalFlags struct {
-	ConfigPath string
-	Command    string
+type appArgs struct {
+	configPath string
+	command    string
 }
 
-func parseGlobalConfig() (*config.Config, error) {
-	configData, err := os.ReadFile(globalFlags.ConfigPath)
+func (a *appArgs) parseConfig() (*config.Config, error) {
+	configData, err := os.ReadFile(a.configPath)
 	if err != nil {
 		return nil, err
 	}
 
-	res := &config.Config{}
-	if err := yaml.Unmarshal(configData, res); err != nil {
+	result := &config.Config{}
+	if err := yaml.Unmarshal(configData, result); err != nil {
 		return nil, err
 	}
-
-	res.FillPrivateFields()
-	res.FillDefaults()
-	return res, nil
+	result.FillPrivateFields()
+	result.FillDefaults()
+	return result, nil
 }
 
-func writeGlobalConfig(conf *config.Config) error {
+func (a *appArgs) writeConfig(conf *config.Config) error {
 	data, err := yaml.Marshal(conf)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(globalFlags.ConfigPath, data, 0644)
+	return os.WriteFile(a.configPath, data, 0o644)
+}
+
+func buildApp(le *logrus.Entry) *cli.App {
+	args := &appArgs{}
+	shellCommand := buildShellCommand(le, args)
+	app := &cli.App{
+		Name:    "skiff-core",
+		Usage:   "Manage user environment containers.",
+		Version: gitCommit,
+		Authors: []*cli.Author{{
+			Name:  "Christian Stewart",
+			Email: "christian@aperture.us",
+		}},
+		Commands: []*cli.Command{
+			buildSetupCommand(le, args),
+			buildDefconfigCommand(args),
+			shellCommand,
+			buildSysInfoCommand(),
+			buildScratchBuildCommand(le),
+		},
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "config",
+				Usage:       "skiff-core config YAML.",
+				Destination: &args.configPath,
+				Value:       "config.yaml",
+			},
+			&cli.StringFlag{
+				Name:        "command",
+				Aliases:     []string{"c"},
+				Usage:       "Command override when invoked as a login shell.",
+				Destination: &args.command,
+			},
+		},
+	}
+	app.HideVersion = gitCommit == "unknown"
+	app.Action = func(c *cli.Context) error {
+		if !strings.HasPrefix(os.Args[0], "-") && args.command == "" {
+			return cli.ShowAppHelp(c)
+		}
+		return shellCommand.Action(c)
+	}
+	return app
 }
 
 func main() {
-	log.SetLevel(log.DebugLevel)
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+	le := logrus.NewEntry(logger)
 
-	app := cli.NewApp()
-	app.Authors = []*cli.Author{{
-		Name:  "Christian Stewart",
-		Email: "christian@aperture.us",
-	}}
-	app.Usage = "Manages user environment containers."
-	app.Version = gitCommit
-	if gitCommit == "unknown" {
-		app.HideVersion = true
-	}
-	app.Commands = append(app.Commands, SetupCommands...)
-	app.Commands = append(app.Commands, DefconfigCommands...)
-	app.Commands = append(app.Commands, ShellCommands...)
-	app.Commands = append(app.Commands, SysInfoCommands...)
-	app.Commands = append(app.Commands, ScratchBuildCommands...)
-	app.Flags = []cli.Flag{
-		&cli.StringFlag{
-			Name:        "config",
-			Usage:       "skiff-core config yaml (.yaml)",
-			Destination: &globalFlags.ConfigPath,
-			Value:       "config.yaml",
-		},
-		&cli.StringFlag{
-			Name:        "command",
-			Aliases:     []string{"c"},
-			Usage:       "Command override when calling as a shell.",
-			Destination: &globalFlags.Command,
-		},
-	}
-	app.Action = func(c *cli.Context) error {
-		if []rune(os.Args[0])[0] != '-' && globalFlags.Command == "" {
-			return cli.ShowAppHelp(c)
+	ctx, stop := osSignal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := buildApp(le).RunContext(ctx, os.Args); err != nil {
+		if _, writeErr := fmt.Fprintln(os.Stderr, err); writeErr != nil {
+			os.Exit(1)
 		}
-
-		// Detected shell mode, execute as shell.
-		return ShellCommands[0].Run(c)
-	}
-	if err := app.Run(os.Args); err != nil {
-		os.Stderr.WriteString(err.Error() + "\n")
 		os.Exit(1)
 	}
 }

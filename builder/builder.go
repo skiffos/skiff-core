@@ -2,14 +2,10 @@ package builder
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/docker/cli/cli/command/image/build"
 	"github.com/docker/docker/api/types"
@@ -18,147 +14,188 @@ import (
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
-	sbbuilder "github.com/paralin/scratchbuild/builder"
 	"github.com/paralin/scratchbuild/stack"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
-// Builder manages building images.
+// Builder builds a configured Docker image from a source tree.
 type Builder struct {
+	le           *logrus.Entry
 	config       *config.ConfigImageBuild
 	outputStream io.Writer
 	workDir      string
 }
 
-// NewBuilder creates a Builder.
-//
-// workDir can be empty to use /tmp (not recommended)
-func NewBuilder(config *config.ConfigImageBuild, workDir string) (*Builder, error) {
-	return &Builder{config: config}, nil
+// NewBuilder constructs an image builder.
+func NewBuilder(
+	le *logrus.Entry,
+	conf *config.ConfigImageBuild,
+	workDir string,
+) (*Builder, error) {
+	if conf == nil {
+		return nil, errors.New("image build config is nil")
+	}
+	if conf.Source == "" {
+		return nil, errors.New("image build source is empty")
+	}
+	return &Builder{
+		le:           le,
+		config:       conf,
+		outputStream: os.Stdout,
+		workDir:      workDir,
+	}, nil
 }
 
-// SetOutputStream sets the output stream.
-func (b *Builder) SetOutputStream(s io.Writer) {
-	b.outputStream = s
+// SetOutputStream sets the Docker build progress writer.
+func (b *Builder) SetOutputStream(output io.Writer) {
+	if output == nil {
+		b.outputStream = io.Discard
+		return
+	}
+	b.outputStream = output
 }
 
-// Close the builder to release the resources it was using.
-func (b *Builder) Close() {}
-
-// Build completes the build process.
-func (b *Builder) Build() error {
-	tmpDir, err := ioutil.TempDir(b.workDir, "skiff-core-build-")
+// Build fetches the configured source and builds its Docker image.
+func (b *Builder) Build(ctx context.Context) error {
+	tempDir, err := os.MkdirTemp(b.workDir, "skiff-core-build-")
 	if err != nil {
 		return err
 	}
 	defer func() {
-		os.RemoveAll(tmpDir)
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.le.WithError(err).WithField("path", tempDir).Warn("remove build directory")
+		}
 	}()
 
-	dir, err := b.fetchSource(tmpDir)
+	sourceDir, err := b.fetchSource(ctx, tempDir)
 	if err != nil {
 		return err
 	}
-
-	return b.build(dir)
+	buildDir := sourceDir
+	if b.config.Root != "" {
+		root := filepath.Clean(filepath.FromSlash(b.config.Root))
+		if !filepath.IsLocal(root) {
+			return errors.Errorf("build root is not local: %s", b.config.Root)
+		}
+		buildDir = filepath.Join(sourceDir, root)
+		info, err := os.Stat(buildDir)
+		if err != nil {
+			return errors.Wrap(err, "inspect build root")
+		}
+		if !info.IsDir() {
+			return errors.Errorf("build root is not a directory: %s", b.config.Root)
+		}
+	}
+	return b.build(ctx, buildDir)
 }
 
-// build completes building the image with a source tree.
-func (b *Builder) build(buildPath string) error {
-	dockerClient, err := client.NewEnvClient()
+func (b *Builder) build(ctx context.Context, buildPath string) error {
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return err
 	}
-	defer dockerClient.Close()
+	defer func() {
+		if err := dockerClient.Close(); err != nil {
+			b.le.WithError(err).Debug("close Docker client")
+		}
+	}()
 
 	if b.config.ScratchBuild {
-		lib, err := globalLibraryCache.GetLibrary()
+		libraryResolver, err := globalLibraryCache.get()
 		if err != nil {
 			return err
 		}
-		defer globalLibraryCache.Release()
-
-		arc := detectArch()
-		stk, err := stack.ImageStackFromPath(buildPath, b.config.Dockerfile, b.config.ImageName(), lib, arc)
-		if err != nil {
-			return err
-		}
-		if err := stk.RebaseOnArch(arc); err != nil {
-			return err
-		}
-
-		bldr := sbbuilder.NewBuilder(stk, dockerClient)
-		bldr.SetOutputStream(b.outputStream)
-		bldr.SetForceRemove(!b.config.PreserveIntermediate)
-		res := make(chan error)
-		go func() {
-			res <- bldr.Build()
+		defer func() {
+			if err := globalLibraryCache.release(); err != nil {
+				b.le.WithError(err).Warn("remove scratch library cache")
+			}
 		}()
 
-		time.Sleep(time.Duration(1) * time.Second)
+		targetArch := detectArch(b.le)
+		imageStack, err := stack.ImageStackFromPath(
+			buildPath,
+			b.config.Dockerfile,
+			b.config.ImageName(),
+			libraryResolver,
+			targetArch,
+		)
+		if err != nil {
+			return err
+		}
+		if err := imageStack.RebaseOnArch(targetArch); err != nil {
+			return err
+		}
 
-		return <-res
+		imageBuilder := NewScratchBuilder(b.le, imageStack, dockerClient)
+		imageBuilder.SetOutputStream(b.outputStream)
+		imageBuilder.SetForceRemove(!b.config.PreserveIntermediate)
+		return imageBuilder.Build(ctx)
 	}
-
-	if err := b.dockerBuild(dockerClient, buildPath, b.config.ImageName()); err != nil {
-		return err
-	}
-
-	// race: briefly for image tag to complete
-	<-time.After(time.Millisecond * 200)
-	return nil
+	return b.dockerBuild(ctx, dockerClient, buildPath, b.config.ImageName())
 }
 
-// build builds the dockerfile in a directory.
-func (b *Builder) dockerBuild(dockerClient client.APIClient, buildPath string, reference string) error {
+func (b *Builder) dockerBuild(
+	ctx context.Context,
+	dockerClient client.APIClient,
+	buildPath string,
+	reference string,
+) error {
 	isTerminal := false
-	var outFd uintptr
-	if b.outputStream == os.Stdout {
-		outFd = os.Stdout.Fd()
-		isTerminal = terminal.IsTerminal(int(outFd))
+	var outputFD uintptr
+	if file, ok := b.outputStream.(*os.File); ok {
+		outputFD = file.Fd()
+		isTerminal = terminal.IsTerminal(int(outputFD))
 	}
 
-	relDockerfile := b.config.Dockerfile
-	if relDockerfile == "" {
-		relDockerfile = "Dockerfile"
+	relativeDockerfile := b.config.Dockerfile
+	if relativeDockerfile == "" {
+		relativeDockerfile = "Dockerfile"
 	}
 	excludes, err := build.ReadDockerignore(buildPath)
 	if err != nil {
 		return err
 	}
-
 	if err := build.ValidateContextDirectory(buildPath, excludes); err != nil {
-		return fmt.Errorf("Error with context: %v", err)
+		return errors.Wrap(err, "validate Docker build context")
 	}
+	excludes = build.TrimBuildFilesFromExcludes(excludes, relativeDockerfile, false)
 
-	excludes = build.TrimBuildFilesFromExcludes(excludes, relDockerfile, false)
-	buildCtx, err := archive.TarWithOptions(buildPath, &archive.TarOptions{
-		// Compression:     archive.Gzip, - results in an error
+	buildContext, err := archive.TarWithOptions(buildPath, &archive.TarOptions{
 		ExcludePatterns: excludes,
 	})
 	if err != nil {
 		return err
 	}
+	defer buildContext.Close()
 
-	dockerfilePath := path.Join(buildPath, relDockerfile)
-	sourceBin, err := ioutil.ReadFile(dockerfilePath)
+	dockerfilePath := filepath.Join(buildPath, filepath.FromSlash(relativeDockerfile))
+	dockerfileSource, err := os.ReadFile(dockerfilePath)
 	if err != nil {
 		return err
 	}
-	dockerfileSrc := string(sourceBin)
-
-	buildCtx, relDockerfile, err = build.AddDockerfileToBuildContext(&nopCloser{strings.NewReader(dockerfileSrc)}, buildCtx)
+	buildContext, relativeDockerfile, err = build.AddDockerfileToBuildContext(
+		io.NopCloser(strings.NewReader(string(dockerfileSource))),
+		buildContext,
+	)
 	if err != nil {
 		return err
 	}
 
-	progressOutput := streamformatter.NewProgressOutput(os.Stdout)
-	var body io.Reader = progress.NewProgressReader(buildCtx, progressOutput, 0, "", "Sending build context to Docker daemon")
-	response, err := dockerClient.ImageBuild(context.Background(), body, types.ImageBuildOptions{
+	progressOutput := streamformatter.NewProgressOutput(b.outputStream)
+	body := progress.NewProgressReader(
+		buildContext,
+		progressOutput,
+		0,
+		"",
+		"Sending build context to Docker daemon",
+	)
+	response, err := dockerClient.ImageBuild(ctx, body, types.ImageBuildOptions{
 		PullParent:  false,
 		ForceRemove: !b.config.PreserveIntermediate,
-		Dockerfile:  relDockerfile,
+		Dockerfile:  relativeDockerfile,
 		Tags:        []string{reference},
 		Squash:      b.config.Squash,
 		BuildArgs:   b.config.BuildArgs,
@@ -167,36 +204,24 @@ func (b *Builder) dockerBuild(dockerClient client.APIClient, buildPath string, r
 		return err
 	}
 	defer response.Body.Close()
-
-	return jsonmessage.DisplayJSONMessagesStream(response.Body, b.outputStream, outFd, isTerminal, nil)
+	return jsonmessage.DisplayJSONMessagesStream(response.Body, b.outputStream, outputFD, isTerminal, nil)
 }
 
-// fetchSource downloads the source to a destination path.
-//
-// If the source is already somewhere suitable on disk, returns that path instead.
-func (b *Builder) fetchSource(destination string) (outDir string, err error) {
+func (b *Builder) fetchSource(ctx context.Context, destination string) (string, error) {
 	source := b.config.Source
-
-	if source == "" {
-		return "", errors.New("No source specified")
-	}
-
-	// determine which kind of URL it is.
-	if strings.HasPrefix(source, "git://") ||
-		(strings.HasSuffix(source, ".git") && strings.HasPrefix(source, "http")) {
-		return destination, b.fetchSourceGit(destination, source)
-	}
-
-	if strings.HasSuffix(source, ".tar.gz") {
-		return destination, b.fetchSourceTarball(destination, source)
-	}
-
-	if strings.HasPrefix(source, "/") {
-		if _, ferr := os.Stat(source); ferr == nil {
+	switch {
+	case strings.HasPrefix(source, "git://"),
+		strings.HasPrefix(source, "ssh://"),
+		strings.HasSuffix(source, ".git") && strings.HasPrefix(source, "http"):
+		return destination, b.fetchSourceGit(ctx, destination, source)
+	case strings.HasSuffix(source, ".tar.gz"), strings.HasSuffix(source, ".tgz"):
+		return destination, b.fetchSourceTarball(ctx, destination, source)
+	case filepath.IsAbs(source):
+		if info, err := os.Stat(source); err == nil && info.IsDir() {
 			return source, nil
 		}
-		return destination, b.fetchSourceRsync(destination, source)
+		return destination, b.fetchSourceRsync(ctx, destination, source)
+	default:
+		return "", errors.Errorf("unrecognized image source: %s", source)
 	}
-
-	return "", fmt.Errorf("Unrecognized source kind: %s", destination)
 }

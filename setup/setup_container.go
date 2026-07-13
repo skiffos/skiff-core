@@ -2,130 +2,144 @@ package setup
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"sync"
+	"strconv"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
-	log "github.com/sirupsen/logrus"
+	"github.com/docker/go-connections/nat"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
 	"github.com/skiffos/skiff-core/util/multiwriter"
 )
 
-// ContainerSetup sets up a container.
+// ContainerSetup creates one configured Docker container.
 type ContainerSetup struct {
+	le     *logrus.Entry
 	config *config.ConfigContainer
 	waiter ImageWaiter
 	logger multiwriter.MultiWriter
+	done   chan struct{}
 
-	wg          sync.WaitGroup
 	err         error
-	containerId string
+	containerID string
 }
 
-// NewContainerSetup creates a new ContainerSetup.
-func NewContainerSetup(config *config.ConfigContainer, waiter ImageWaiter) *ContainerSetup {
-	return &ContainerSetup{config: config, waiter: waiter}
+// NewContainerSetup constructs a container setup operation.
+func NewContainerSetup(
+	le *logrus.Entry,
+	conf *config.ConfigContainer,
+	waiter ImageWaiter,
+) *ContainerSetup {
+	return &ContainerSetup{
+		le:     le.WithField("container", conf.Name()),
+		config: conf,
+		waiter: waiter,
+		done:   make(chan struct{}),
+	}
 }
 
-// buildDockerContainer builds the Docker API container representation of this config.
-func (cs *ContainerSetup) buildDockerContainer() *types.ContainerCreateConfig {
-	res := &types.ContainerCreateConfig{Name: cs.config.Name()}
-
-	config := cs.config
+func (c *ContainerSetup) buildDockerContainer() (*container.Config, *container.HostConfig, error) {
+	conf := c.config
 	containerConfig := &container.Config{
-		Cmd:        config.Cmd,
-		Entrypoint: config.Entrypoint,
-		Image:      config.Image,
-		Tty:        config.Tty,
-		WorkingDir: config.WorkingDirectory,
-		StopSignal: config.StopSignal,
+		Hostname:   conf.Name(),
+		Image:      conf.Image,
+		Entrypoint: conf.Entrypoint,
+		Cmd:        conf.Cmd,
+		WorkingDir: conf.WorkingDirectory,
+		Tty:        conf.Tty,
+		StopSignal: conf.StopSignal,
 	}
-	res.Config = containerConfig
-	for _, ev := range config.Env {
-		if len(ev) != 0 {
-			containerConfig.Env = append(
-				containerConfig.Env,
-				ev,
-			)
-		}
+	for _, env := range conf.Env {
+		containerConfig.Env = append(containerConfig.Env, env)
 	}
-	useInit := !config.DisableInit
+
+	useInit := !conf.DisableInit
 	hostConfig := &container.HostConfig{
-		CapAdd:      config.CapAdd,
-		DNS:         config.DNS,
-		DNSSearch:   config.DNSSearch,
-		ExtraHosts:  config.Hosts,
+		AutoRemove:  false,
+		CapAdd:      conf.CapAdd,
+		DNS:         conf.DNS,
+		DNSSearch:   conf.DNSSearch,
+		ExtraHosts:  conf.Hosts,
 		Init:        &useInit,
-		SecurityOpt: config.SecurityOpt,
-		Tmpfs:       config.TmpFs,
-		Privileged:  config.Privileged,
+		Privileged:  conf.Privileged,
+		SecurityOpt: conf.SecurityOpt,
+		Tmpfs:       conf.TmpFs,
 	}
-	if rp := config.RestartPolicy; rp != "" {
-		hostConfig.RestartPolicy = container.RestartPolicy{
-			Name: rp,
+	for _, portConfig := range conf.Ports {
+		if portConfig.HostPort < 0 || portConfig.HostPort > 65535 {
+			return nil, nil, errors.Errorf("invalid host TCP port: %d", portConfig.HostPort)
 		}
+		port, err := nat.NewPort("tcp", strconv.Itoa(portConfig.ContainerPort))
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "parse container port")
+		}
+		if containerConfig.ExposedPorts == nil {
+			containerConfig.ExposedPorts = make(nat.PortSet)
+			hostConfig.PortBindings = make(nat.PortMap)
+		}
+		containerConfig.ExposedPorts[port] = struct{}{}
+		hostPort := ""
+		if portConfig.HostPort > 0 {
+			hostPort = strconv.Itoa(portConfig.HostPort)
+		}
+		hostConfig.PortBindings[port] = []nat.PortBinding{{HostPort: hostPort}}
 	}
-	res.HostConfig = hostConfig
-	if len(config.Mounts) > 0 {
-		hostConfig.Binds = make([]string, len(config.Mounts))
-		copy(hostConfig.Binds, config.Mounts)
+	if restartPolicy := conf.RestartPolicy; restartPolicy != "" {
+		hostConfig.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(restartPolicy)}
+	}
+	if len(conf.Mounts) > 0 {
+		hostConfig.Binds = conf.Mounts
 	}
 	if useInit {
 		hostConfig.Binds = append(hostConfig.Binds, "/usr/bin/tini:/dev/init")
 	}
-	if config.HostNetwork {
+	if conf.HostNetwork {
 		hostConfig.NetworkMode = container.NetworkMode("host")
 	}
-	if config.HostIPC {
+	if conf.HostIPC {
 		hostConfig.IpcMode = container.IpcMode("host")
 	}
-	if config.HostPID {
+	if conf.HostPID {
 		hostConfig.PidMode = container.PidMode("host")
 	}
-	if config.HostUTS {
+	if conf.HostUTS {
 		hostConfig.UTSMode = container.UTSMode("host")
 	}
-
-	return res
+	return containerConfig, hostConfig, nil
 }
 
-// Execute starts the container setup.
-func (cs *ContainerSetup) Execute() (execError error) {
-	cs.wg.Add(1)
+// Execute creates or finds the container and publishes completion to waiters.
+func (c *ContainerSetup) Execute(ctx context.Context) (executeError error) {
 	defer func() {
-		cs.err = execError
-		cs.wg.Done()
+		c.err = executeError
+		close(c.done)
 	}()
 
-	config := cs.config
-	if config.Image == "" {
-		return fmt.Errorf("Container %s must have image specified.", config.Name())
+	if c.config.Image == "" {
+		return errors.Errorf("container must specify an image: %s", c.config.Name())
 	}
-
-	dockerClient, err := client.NewEnvClient()
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return err
 	}
-	defer dockerClient.Close()
+	defer func() {
+		if err := dockerClient.Close(); err != nil {
+			c.le.WithError(err).Debug("close Docker client")
+		}
+	}()
 
-	// check if the container exists
-	le := log.WithField("name", config.Name())
 	checkContainerExists := func() (bool, error) {
-		list, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
-			All: true,
-		})
+		containers, err := dockerClient.ContainerList(ctx, container.ListOptions{All: true})
 		if err != nil {
 			return false, err
 		}
-
-		for _, ctr := range list {
-			for _, name := range ctr.Names {
-				if name == config.Name() {
-					le.Debug("Container already exists")
-					cs.containerId = ctr.ID
+		for _, candidate := range containers {
+			for _, name := range candidate.Names {
+				if name == c.config.Name() {
+					c.le.Debug("container already exists")
+					c.containerID = candidate.ID
 					return true, nil
 				}
 			}
@@ -133,76 +147,76 @@ func (cs *ContainerSetup) Execute() (execError error) {
 		return false, nil
 	}
 
-	// createOrFindContainer returns nil only if cs.containerID contains the container ID.
-	createOrFindContainer := func() error {
-		if exists, err := checkContainerExists(); exists || err != nil {
+	exists, err := checkContainerExists()
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if err := c.waiter.WaitForImage(ctx, c.config.Image, &c.logger); err != nil {
 			return err
 		}
-
-		// wait for the image to be ready
-		if err := cs.waiter.WaitForImage(config.Image, &cs.logger); err != nil {
+		exists, err = checkContainerExists()
+		if err != nil {
 			return err
 		}
-
-		if exists, err := checkContainerExists(); exists || err != nil {
+	}
+	if !exists {
+		containerConfig, hostConfig, err := c.buildDockerContainer()
+		if err != nil {
 			return err
 		}
-
-		// create the container
-		cconf := cs.buildDockerContainer()
-		res, err := dockerClient.ContainerCreate(
-			context.Background(),
-			cconf.Config,
-			cconf.HostConfig,
-			cconf.NetworkingConfig,
+		result, err := dockerClient.ContainerCreate(
+			ctx,
+			containerConfig,
+			hostConfig,
 			nil,
-			cconf.Name,
+			nil,
+			c.config.Name(),
 		)
 		if err != nil {
 			return err
 		}
-		le.WithField("id", res.ID).Debug("Container created")
-		for _, warning := range res.Warnings {
-			le.Warnf("Docker issued warning: %s", warning)
-		}
-		cs.containerId = res.ID
-		return nil
-	}
-
-	if err := createOrFindContainer(); err != nil {
-		return err
-	}
-
-	containerID := cs.containerId
-	cs.logger.Write([]byte("Container created/found with ID: "))
-	cs.logger.Write([]byte(containerID))
-	cs.logger.Write([]byte("\n"))
-
-	if cs.config.StartAfterCreate {
-		cs.logger.Write([]byte("Starting container" + containerID + "...\n"))
-		err = dockerClient.ContainerStart(context.Background(), containerID, types.ContainerStartOptions{})
-		if err != nil {
-			cs.logger.Write([]byte("Could not start container, continuing: " + err.Error() + "\n"))
+		c.containerID = result.ID
+		c.le.WithField("id", result.ID).Debug("container created")
+		for _, warning := range result.Warnings {
+			c.le.Warnf("DRemoveWriterrning: %s", warning)
 		}
 	}
 
+	if _, err := c.logger.Write([]byte("Container created/found with ID: " + c.containerID + "\n")); err != nil {
+		return errors.Wrap(err, "write container setup log")
+	}
+	if c.config.StartAfterCreate {
+		if _, err := c.logger.Write([]byte("Starting container " + c.containerID + "...\n")); err != nil {
+			return errors.Wrap(err, "write container setup log")
+		}
+		if err := dockerClient.ContainerStart(ctx, c.containerID, container.StartOptions{}); err != nil {
+			return errors.Wrap(err, "start container")
+		}
+	}
 	return nil
 }
 
-// Wait waits for Execute() to finish.
-func (i *ContainerSetup) Wait(log io.Writer) error {
-	i.logger.AddWriter(log)
-	defer i.logger.RmWriter(log)
+// Wait waits for container setup completion or context cancellation.
+func (c *ContainerSetup) Wait(ctx context.Context, logOut io.Writer) error {
+	c.logger.AddWriter(logOut)
+	defer c.logger.RemoveWriter(logOut)
 
-	i.wg.Wait()
-	return i.err
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return c.err
+	}
 }
 
-// WaitWithId waits for Execute() to finish and returns the container ID.
-func (i *ContainerSetup) WaitWithId(outw io.Writer) (string, error) {
-	i.logger.AddWriter(outw)
-	defer i.logger.RmWriter(outw)
-
-	i.wg.Wait()
-	return i.containerId, i.err
+// WaitWithID waits for container setup and returns the container ID.
+func (c *ContainerSetup) WaitWithID(ctx context.Context, logOut io.Writer) (string, error) {
+	if err := c.Wait(ctx, logOut); err != nil {
+		return "", err
+	}
+	return c.containerID, nil
 }
+
+// _ is a type assertion.
+var _ SetupJob = ((*ContainerSetup)(nil))

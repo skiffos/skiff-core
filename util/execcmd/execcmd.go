@@ -1,13 +1,14 @@
 package execcmd
 
 import (
+	"context"
 	"os"
 	"os/exec"
 )
 
-// ExecCmd executes a command on the local machine.
-func ExecCmd(command string, args ...string) error {
-	cmd := exec.Command(command, args...)
+// ExecCmd executes a local command with inherited standard output and error.
+func ExecCmd(ctx context.Context, command string, args ...string) error {
+	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

@@ -1,39 +1,38 @@
 package main
 
 import (
-	"errors"
 	"os/user"
 
+	"github.com/aperturerobotics/cli"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/shell"
-	"github.com/urfave/cli/v2"
 )
 
-// ShellCommands define the commands for "shell"
-var ShellCommands cli.Commands = []*cli.Command{
-	{
+func buildShellCommand(le *logrus.Entry, args *appArgs) *cli.Command {
+	return &cli.Command{
 		Name:  "shell",
-		Usage: "Runs skiff-core in shell mode.",
+		Usage: "Run skiff-core in shell mode.",
 		Action: func(c *cli.Context) error {
-			// Check the home directory
 			currentUser, err := user.Current()
 			if err != nil {
 				return err
 			}
-
 			if currentUser.HomeDir == "" {
-				return errors.New("Cannot determine home directory.")
+				return errors.New("cannot determine home directory")
 			}
 
-			sh := shell.NewShell(currentUser.HomeDir)
-			// cmd, if unset, defaults to config.UserShell
-			// arg 2, execWithShell, indicates the cmd should be run in user shell.
-			// ex: cmd={"rsync", "~/test", "remote:test"}, converts to:
-			// docker exec -it container-id /bin/sh -c 'rsync ~/test remote:test'
-			err = sh.Execute(globalFlags.Command, true)
-			if err != nil {
-				return cli.NewExitError(err.Error(), 1)
+			userShell := shell.NewShell(le, currentUser.HomeDir)
+			err = userShell.Execute(c.Context, args.command, true)
+			if err == nil {
+				return nil
 			}
-			return nil
+
+			var exitErr interface{ ExitCode() int }
+			if errors.As(err, &exitErr) {
+				return cli.Exit("", exitErr.ExitCode())
+			}
+			return err
 		},
-	},
+	}
 }

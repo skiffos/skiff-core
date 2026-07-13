@@ -3,48 +3,63 @@ package builder
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"io"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
-// fetchSourceTarball tries to download (if a URL) and extract a tarball/zip archive.
-func (b *Builder) fetchSourceTarball(destination, source string) error {
-	le := log.WithField("source", "tarball")
+type pendingArchiveLink struct {
+	path       string
+	target     string
+	isSymlink  bool
+	linkSource string
+}
 
-	var tarGzReader io.Reader
-	if strings.HasPrefix(source, "http") {
-		le.WithField("url", source).Debug("Fetching & extracting")
-		response, err := http.Get(source)
+func (b *Builder) fetchSourceTarball(ctx context.Context, destination string, source string) error {
+	var archiveReader io.Reader
+	var sourceCloser io.Closer
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		b.le.WithField("url", source).Debug("fetch image source archive")
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
 		if err != nil {
 			return err
 		}
-		defer response.Body.Close()
-		tarGzReader = response.Body
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			return err
+		}
+		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+			response.Body.Close()
+			return errors.Errorf("fetch source archive: HTTP status %s", response.Status)
+		}
+		archiveReader = response.Body
+		sourceCloser = response.Body
 	} else {
-		le.WithField("path", source).Debug("Extracting")
-		f, err := os.Open(source)
+		b.le.WithField("path", source).Debug("extract image source archive")
+		file, err := os.Open(source)
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		tarGzReader = f
+		archiveReader = file
+		sourceCloser = file
 	}
+	defer sourceCloser.Close()
 
-	gzr, err := gzip.NewReader(tarGzReader)
+	gzipReader, err := gzip.NewReader(archiveReader)
 	if err != nil {
 		return err
 	}
-	defer gzr.Close()
+	defer gzipReader.Close()
 
-	tarr := tar.NewReader(gzr)
+	var pendingLinks []pendingArchiveLink
+	tarReader := tar.NewReader(gzipReader)
 	for {
-		hdr, err := tarr.Next()
+		header, err := tarReader.Next()
 		if err == io.EOF {
 			break
 		}
@@ -52,31 +67,75 @@ func (b *Builder) fetchSourceTarball(destination, source string) error {
 			return err
 		}
 
-		// NOTE: avoid zip slip vulnerability
-		name := hdr.Name
-		if strings.Contains(name, "..") {
-			return errors.Errorf("zip entry cannot contain ..: %s", name)
+		name := filepath.Clean(filepath.FromSlash(header.Name))
+		if !filepath.IsLocal(name) {
+			return errors.Errorf("archive entry escapes destination: %s", header.Name)
 		}
-
-		fdest := path.Join(destination, hdr.Name)
-		info := hdr.FileInfo()
-		if info.IsDir() {
-			if err := os.MkdirAll(fdest, info.Mode()); err != nil {
+		destinationPath := filepath.Join(destination, name)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(destinationPath, header.FileInfo().Mode().Perm()); err != nil {
 				return err
 			}
-			continue
-		}
-
-		f, err := os.OpenFile(fdest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode())
-		if err != nil {
-			return err
-		}
-		_, err = io.Copy(f, tarr)
-		f.Close()
-		if err != nil {
-			return err
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
+				return err
+			}
+			file, err := os.OpenFile(
+				destinationPath,
+				os.O_CREATE|os.O_TRUNC|os.O_WRONLY,
+				header.FileInfo().Mode().Perm(),
+			)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(file, tarReader)
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		case tar.TypeSymlink:
+			targetPath := filepath.Clean(filepath.Join(filepath.Dir(name), filepath.FromSlash(header.Linkname)))
+			if !filepath.IsLocal(targetPath) {
+				return errors.Errorf("archive symlink escapes destination: %s -> %s", header.Name, header.Linkname)
+			}
+			pendingLinks = append(pendingLinks, pendingArchiveLink{
+				path:       destinationPath,
+				target:     header.Linkname,
+				isSymlink:  true,
+				linkSource: header.Name,
+			})
+		case tar.TypeLink:
+			targetName := filepath.Clean(filepath.FromSlash(header.Linkname))
+			if !filepath.IsLocal(targetName) {
+				return errors.Errorf("archive hard link escapes destination: %s -> %s", header.Name, header.Linkname)
+			}
+			pendingLinks = append(pendingLinks, pendingArchiveLink{
+				path:       destinationPath,
+				target:     filepath.Join(destination, targetName),
+				linkSource: header.Name,
+			})
+		default:
+			return errors.Errorf("unsupported archive entry type %d: %s", header.Typeflag, header.Name)
 		}
 	}
 
+	for _, link := range pendingLinks {
+		if err := os.MkdirAll(filepath.Dir(link.path), 0o755); err != nil {
+			return err
+		}
+		if link.isSymlink {
+			if err := os.Symlink(link.target, link.path); err != nil {
+				return errors.Wrapf(err, "create archive symlink %s", link.linkSource)
+			}
+			continue
+		}
+		if err := os.Link(link.target, link.path); err != nil {
+			return errors.Wrapf(err, "create archive hard link %s", link.linkSource)
+		}
+	}
 	return nil
 }

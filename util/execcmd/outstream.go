@@ -7,25 +7,26 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// OutStream is an output stream used by the DockerCli to write normal program
-// output.
+// OutStream writes command output and exposes terminal dimensions.
 type OutStream struct {
 	CommonStream
 	out io.Writer
+	le  *logrus.Entry
 }
 
+// Write writes output to the underlying writer.
 func (o *OutStream) Write(p []byte) (int, error) {
 	return o.out.Write(p)
 }
 
-// GetTtySize returns the height and width in characters of the tty
-func (o *OutStream) GetTtySize() (uint, uint) {
+// GetTTYSize returns the terminal height and width in characters.
+func (o *OutStream) GetTTYSize() (uint, uint) {
 	if !o.isTerminal {
 		return 0, 0
 	}
 	ws, err := term.GetWinsize(o.fd)
 	if err != nil {
-		logrus.Debugf("Error getting size: %s", err)
+		o.le.WithError(err).Debug("get terminal size")
 		if ws == nil {
 			return 0, 0
 		}
@@ -33,12 +34,16 @@ func (o *OutStream) GetTtySize() (uint, uint) {
 	return uint(ws.Height), uint(ws.Width)
 }
 
-// NewOutStream returns a new OutStream object from a Writer
-func NewOutStream(out io.Writer) io.Writer {
+// NewOutStream constructs an output stream around a writer.
+func NewOutStream(le *logrus.Entry, out io.Writer) io.Writer {
 	if out == nil {
 		return nil
 	}
 
 	fd, isTerminal := term.GetFdInfo(out)
-	return &OutStream{CommonStream: CommonStream{fd: fd, isTerminal: isTerminal}, out: out}
+	return &OutStream{
+		CommonStream: CommonStream{fd: fd, isTerminal: isTerminal},
+		out:          out,
+		le:           le,
+	}
 }

@@ -2,55 +2,145 @@ package shell
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
-	"time"
+	"path/filepath"
 
-	"github.com/docker/docker/api"
-	"github.com/docker/docker/api/types"
+	"github.com/aperturerobotics/fsnotify"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
-	"github.com/hpcloud/tail"
-	"github.com/mgutz/str"
+	"github.com/kballard/go-shellquote"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
 	"github.com/skiffos/skiff-core/util/execcmd"
 )
 
-// Shell holds an instance of a user's interaction with a Docker container.
+// Shell executes a host user's commands inside the configured Docker container.
 type Shell struct {
+	le      *logrus.Entry
 	homeDir string
 }
 
-// NewShell builds a new shell instance.
-func NewShell(homeDir string) *Shell {
-	return &Shell{homeDir: homeDir}
+// NewShell constructs a shell for a host user home directory.
+func NewShell(le *logrus.Entry, homeDir string) *Shell {
+	return &Shell{le: le, homeDir: homeDir}
 }
 
-// buildDockerClient builds the docker client.
 func (s *Shell) buildDockerClient() (client.APIClient, error) {
-	return client.NewClient(client.DefaultDockerHost, api.DefaultVersion, nil, nil)
+	return client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 }
 
-// loadUserConfig loads the information for this user.
 func (s *Shell) loadUserConfig(configPath string) (*config.ConfigUserShell, error) {
-	cf, err := os.Open(configPath)
-	if err != nil {
-		return nil, err
-	}
-	defer cf.Close()
-
-	data, err := ioutil.ReadAll(cf)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
 	return config.UnmarshalConfigUserShell(data)
 }
 
-// defaultShell is the default shell to use if nothing else is found.
+func (s *Shell) waitForUserConfig(
+	ctx context.Context,
+	configPath string,
+	logPath string,
+	logOut io.Writer,
+) (*config.ConfigUserShell, error) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, errors.Wrap(err, "construct user config watcher")
+	}
+	defer watcher.Close()
+
+	if err := watcher.Add(s.homeDir); err != nil {
+		return nil, errors.Wrap(err, "watch user home directory")
+	}
+
+	loadConfig := func() (*config.ConfigUserShell, bool, error) {
+		userConfig, err := s.loadUserConfig(configPath)
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, errors.Wrap(err, "load user shell config")
+		}
+		if userConfig.ContainerID == "" {
+			return nil, false, errors.New("user shell config has no container ID")
+		}
+		return userConfig, true, nil
+	}
+
+	if userConfig, ok, err := loadConfig(); err != nil || ok {
+		return userConfig, err
+	}
+
+	var logInfo os.FileInfo
+	var logOffset int64
+	copySetupLog := func() error {
+		file, err := os.Open(logPath)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		if logInfo == nil || !os.SameFile(logInfo, info) || info.Size() < logOffset {
+			logOffset = 0
+		}
+		if _, err := file.Seek(logOffset, io.SeekStart); err != nil {
+			return err
+		}
+		n, err := io.Copy(logOut, file)
+		logOffset += n
+		logInfo = info
+		return err
+	}
+
+	if err := copySetupLog(); err != nil {
+		return nil, errors.Wrap(err, "read setup log")
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return nil, errors.New("user config watcher stopped")
+			}
+			return nil, errors.Wrap(err, "watch user shell config")
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return nil, errors.New("user config watcher stopped")
+			}
+
+			eventPath := filepath.Clean(event.Name)
+			if eventPath == filepath.Clean(logPath) {
+				if err := copySetupLog(); err != nil {
+					return nil, errors.Wrap(err, "read setup log")
+				}
+			}
+			if eventPath != filepath.Clean(configPath) {
+				continue
+			}
+
+			userConfig, ready, err := loadConfig()
+			if err != nil {
+				return nil, err
+			}
+			if ready {
+				return userConfig, nil
+			}
+		}
+	}
+}
+
 var defaultShell = []string{"/bin/sh"}
 
 const sftpServerShim = `for p in /usr/lib/openssh/sftp-server /usr/libexec/sftp-server /usr/lib/ssh/sftp-server; do
@@ -64,23 +154,25 @@ fi
 echo "skiff-core: no sftp-server found in container" >&2
 exit 127`
 
-func buildSSHSubsystemCmd(inputCmd string) ([]string, bool) {
-	inputArgv := str.ToArgv(inputCmd)
+func buildSSHSubsystemCmd(inputCmd string) ([]string, bool, error) {
+	inputArgv, err := shellquote.Split(inputCmd)
+	if err != nil {
+		return nil, false, err
+	}
 	if len(inputArgv) == 0 {
-		return nil, false
+		return nil, false, nil
 	}
 
 	switch path.Base(inputArgv[0]) {
 	case "sftp-server", "internal-sftp":
 		targetCmd := []string{"/bin/sh", "-c", sftpServerShim, path.Base(inputArgv[0])}
 		targetCmd = append(targetCmd, inputArgv[1:]...)
-		return targetCmd, true
+		return targetCmd, true, nil
 	default:
-		return nil, false
+		return nil, false, nil
 	}
 }
 
-// buildTargetCmd builds the full command to pass to docker, wrapping with shell.
 func (s *Shell) buildTargetCmd(
 	userConfig *config.ConfigUserShell,
 	inputCmd string,
@@ -92,9 +184,12 @@ func (s *Shell) buildTargetCmd(
 		userShell = defaultShell
 	}
 
-	// Setup the command based on the given.
-	if len(inputCmd) != 0 {
-		if subsystemCmd, ok := buildSSHSubsystemCmd(inputCmd); ok {
+	if inputCmd != "" {
+		subsystemCmd, subsystem, err := buildSSHSubsystemCmd(inputCmd)
+		if err != nil {
+			return nil, errors.Wrap(err, "parse SSH command")
+		}
+		if subsystem {
 			return subsystemCmd, nil
 		}
 
@@ -104,90 +199,45 @@ func (s *Shell) buildTargetCmd(
 			targetCmd[len(targetCmd)-2] = "-c"
 			targetCmd[len(targetCmd)-1] = inputCmd
 		} else {
-			targetCmd = str.ToArgv(inputCmd)
+			targetCmd, err = shellquote.Split(inputCmd)
+			if err != nil {
+				return nil, errors.Wrap(err, "parse command")
+			}
 		}
 	}
 
 	if len(targetCmd) == 0 {
-		targetCmd = userShell // execute shell directly
+		targetCmd = userShell
 	}
 	return targetCmd, nil
 }
 
-// Execute executes the shell, redirecting stdin.
-func (s *Shell) Execute(
-	inputCmd string,
-	execWithShell bool,
-) error {
+// Execute runs a command inside the user's configured Docker container.
+func (s *Shell) Execute(ctx context.Context, inputCmd string, execWithShell bool) error {
 	dockerClient, err := s.buildDockerClient()
 	if err != nil {
 		return err
 	}
+	defer dockerClient.Close()
 
 	in := execcmd.NewInStream(os.Stdin, true)
-	out := execcmd.NewOutStream(os.Stdout)
-	errOut := execcmd.NewOutStream(os.Stderr)
+	out := execcmd.NewOutStream(s.le, os.Stdout)
+	errOut := execcmd.NewOutStream(s.le, os.Stderr)
 	inStrm, _ := in.(*execcmd.InStream)
-	useTty := inStrm != nil && inStrm.IsTty()
+	useTTY := inStrm != nil && inStrm.IsTTY()
 	outStrm, _ := out.(*execcmd.OutStream)
-	// errStrm, _ := errOut.(*execcmd.OutStream)
 
-	configPath := path.Join(s.homeDir, config.UserConfigFile)
-	logPath := path.Join(s.homeDir, config.UserLogFile)
-	completeCh := make(chan *config.ConfigUserShell, 1)
-	checkFiles := func() {
-		var err error
-		userConfig, err := s.loadUserConfig(configPath)
-		if err != nil || userConfig == nil || userConfig.ContainerId == "" {
-			userConfig = nil
+	configPath := filepath.Join(s.homeDir, config.UserConfigFile)
+	logPath := filepath.Join(s.homeDir, config.UserLogFile)
+	userConfig, err := s.loadUserConfig(configPath)
+	if err != nil || userConfig.ContainerID == "" {
+		if _, writeErr := errOut.Write([]byte("Container setup in progress:\n")); writeErr != nil {
+			return writeErr
 		}
-		if userConfig != nil {
-			select {
-			case completeCh <- userConfig:
-			default:
-			}
-			return
-		}
-	}
-
-	ctx, ctxCancel := context.WithCancel(context.Background())
-	defer ctxCancel()
-
-	var userConfig *config.ConfigUserShell
-	checkFiles()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case userConfig = <-completeCh:
-	default:
-	}
-
-	if userConfig == nil {
-		errOut.Write([]byte("Container setup in progress:\n"))
-
-		logTail, err := tail.TailFile(logPath, tail.Config{
-			ReOpen: true,
-			Follow: true,
-		})
+		userConfig, err = s.waitForUserConfig(ctx, configPath, logPath, errOut)
 		if err != nil {
-			return errors.Wrap(err, "tail setup logs")
+			return err
 		}
-		defer logTail.Cleanup()
-
-		pollTimer := time.NewTicker(time.Millisecond * 500)
-		for userConfig == nil {
-			select {
-			case <-ctx.Done():
-				pollTimer.Stop()
-				return ctx.Err()
-			case <-pollTimer.C:
-				checkFiles()
-			case line := <-logTail.Lines:
-				errOut.Write([]byte(line.Text + "\n"))
-			case userConfig = <-completeCh:
-			}
-		}
-		pollTimer.Stop()
 	}
 
 	cmd, err := s.buildTargetCmd(userConfig, inputCmd, execWithShell)
@@ -195,32 +245,33 @@ func (s *Shell) Execute(
 		return err
 	}
 
-	// Probe the state of the container.
-	ins, err := dockerClient.ContainerInspect(ctx, userConfig.ContainerId)
+	inspection, err := dockerClient.ContainerInspect(ctx, userConfig.ContainerID)
 	if err != nil {
 		return err
 	}
-
-	if ins.State == nil || !ins.State.Running {
-		errOut.Write([]byte("Starting container " + userConfig.ContainerId + "...\n"))
-		if err := execcmd.StartContainer(ctx, dockerClient, userConfig.ContainerId, 0); err != nil {
-			if err == context.Canceled {
-				return err
-			}
-			logsCloser, lerr := dockerClient.ContainerLogs(ctx, userConfig.ContainerId, types.ContainerLogsOptions{
+	if inspection.State == nil || !inspection.State.Running {
+		if _, err := errOut.Write([]byte("Starting container " + userConfig.ContainerID + "...\n")); err != nil {
+			return err
+		}
+		if err := dockerClient.ContainerStart(ctx, userConfig.ContainerID, container.StartOptions{}); err != nil {
+			logs, logErr := dockerClient.ContainerLogs(ctx, userConfig.ContainerID, container.LogsOptions{
 				ShowStderr: true,
 				ShowStdout: true,
 			})
-			if lerr == nil {
-				_, _ = io.Copy(errOut, logsCloser)
-				logsCloser.Close()
+			if logErr == nil {
+				if _, copyErr := io.Copy(errOut, logs); copyErr != nil {
+					s.le.WithError(copyErr).Debug("copy container logs")
+				}
+				if closeErr := logs.Close(); closeErr != nil {
+					s.le.WithError(closeErr).Debug("close container logs")
+				}
 			}
-			return fmt.Errorf("Unable to start container: %s", err.Error())
+			return errors.Wrap(err, "start container")
 		}
 	}
 
-	execCreate, err := dockerClient.ContainerExecCreate(ctx, userConfig.ContainerId, types.ExecConfig{
-		Tty:  useTty,
+	execCreate, err := dockerClient.ContainerExecCreate(ctx, userConfig.ContainerID, container.ExecOptions{
+		Tty:  useTTY,
 		User: userConfig.User,
 		Cmd:  cmd,
 		Env:  buildShellEnv(),
@@ -233,37 +284,42 @@ func (s *Shell) Execute(
 		return err
 	}
 
-	conn, err := dockerClient.ContainerExecAttach(ctx, execCreate.ID, types.ExecStartCheck{
-		Tty: useTty,
+	conn, err := dockerClient.ContainerExecAttach(ctx, execCreate.ID, container.ExecAttachOptions{
+		Tty: useTTY,
 	})
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	// pipe os.stdin to the connection
-	errCh := make(chan error, 1)
-	go func() {
-		streamer := execcmd.HijackedIOStreamer{
-			InputStream:  in,
-			OutputStream: out,
-			ErrorStream:  errOut,
-			Resp:         conn,
-			Tty:          useTty,
-		}
-		if useTty {
-			inStrm.SetRawMode()
-			defer inStrm.RestoreTerminal()
-		}
+	streamer := execcmd.NewHijackedIOStreamer(s.le, conn, useTTY)
+	streamer.InputStream = in
+	streamer.OutputStream = out
+	streamer.ErrorStream = errOut
 
-		errCh <- streamer.Stream(ctx)
-	}()
+	if useTTY {
+		if err := inStrm.SetRawMode(); err != nil {
+			return err
+		}
+		defer func() {
+			if err := inStrm.RestoreTerminal(); err != nil {
+				s.le.WithError(err).Warn("restore terminal")
+			}
+		}()
+	}
 
-	if useTty && inStrm != nil && inStrm.IsTerminal() && outStrm != nil {
-		if err := MonitorTtySize(ctx, dockerClient, outStrm, execCreate.ID, true); err != nil {
-			log.WithError(err).Error("Error monitoring TTY size")
+	monitorCtx, stopMonitor := context.WithCancel(ctx)
+	defer stopMonitor()
+	if useTTY && inStrm.IsTerminal() && outStrm != nil {
+		if err := MonitorTTYSize(monitorCtx, s.le, dockerClient, outStrm, execCreate.ID, true); err != nil {
+			return err
 		}
 	}
 
-	return <-errCh
+	if err := streamer.Stream(ctx); err != nil {
+		return err
+	}
+	stopMonitor()
+
+	return execcmd.InspectExecExit(ctx, dockerClient, execCreate.ID)
 }

@@ -1,7 +1,7 @@
 package grsync
 
 import (
-	"fmt"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -9,197 +9,199 @@ import (
 	"strings"
 )
 
-// Rsync is wrapper under rsync
+// Rsync wraps one rsync command.
 type Rsync struct {
-	Source      string
+	// source is the transfer source
+	Source string
+	// destination is the transfer destination
 	Destination string
 
 	cmd *exec.Cmd
 }
 
-// RsyncOptions for rsync
+// RsyncOptions configures an rsync command.
 type RsyncOptions struct {
-	// RsyncBinaryPath is a path to the rsync binary; by default just `rsync`
+	// rsyncBinaryPath overrides the rsync executable path
 	RsyncBinaryPath string
-	// RsyncPath specify the rsync to run on remote machine, e.g `--rsync-path="cd /a/b && rsync"`
+	// rsyncPath sets the command used to invoke rsync remotely
 	RsyncPath string
-	// Verbose increase verbosity
+	// verbose increases command output
 	Verbose bool
-	// Quet suppress non-error messages
+	// quiet suppresses non-error messages
 	Quiet bool
-	// Checksum skip based on checksum, not mod-time & size
+	// checksum compares file checksums instead of modification time and size
 	Checksum bool
-	// Archve is archive mode; equals -rlptgoD (no -H,-A,-X)
+	// archive enables archive mode without preserving hard links, ACLs, or xattrs
 	Archive bool
-	// Recurse into directories
+	// recursive descends into directories
 	Recursive bool
-	// Relative option to use relative path names
+	// relative preserves relative path names
 	Relative bool
-	// NoImliedDirs don't send implied dirs with --relative
+	// noImpliedDirs omits implied directories when relative mode is enabled
 	NoImpliedDirs bool
-	// Update skip files that are newer on the receiver
+	// update skips receiver files that are newer
 	Update bool
-	// Inplace update destination files in-place
+	// inplace updates destination files in place
 	Inplace bool
-	// Append data onto shorter files
+	// append adds data to shorter destination files
 	Append bool
-	// AppendVerify --append w/old data in file checksum
+	// appendVerify verifies existing data before appending
 	AppendVerify bool
-	// Dirs transfer directories without recursing
+	// dirs transfers directories without recursing
 	Dirs bool
-	// Links copy symlinks as symlinks
+	// links copies symbolic links as symbolic links
 	Links bool
-	// CopyLinks transform symlink into referent file/dir
+	// copyLinks copies each symbolic-link target
 	CopyLinks bool
-	// CopyUnsafeLinks only "unsafe" symlinks are transformed
+	// copyUnsafeLinks copies targets of symbolic links that escape the tree
 	CopyUnsafeLinks bool
-	// SafeLinks ignore symlinks that point outside the tree
+	// safeLinks ignores symbolic links that escape the tree
 	SafeLinks bool
-	// CopyDirLinks transform symlink to dir into referent dir
+	// copyDirLinks copies symbolic links to directories as directories
 	CopyDirLinks bool
-	// KeepDirLinks treat symlinked dir on receiver as dir
+	// keepDirLinks treats receiver symbolic links to directories as directories
 	KeepDirLinks bool
-	// HardLinks preserve hard links
+	// hardLinks preserves hard links
 	HardLinks bool
-	// Perms preserve permissions
+	// perms preserves permissions
 	Perms bool
-	// NoPerms preserve permissions
+	// noPerms disables permission preservation
 	NoPerms bool
-	// Executability preserve executability
+	// executability preserves executability
 	Executability bool
-	// CHMOD affect file and/or directory permissions
+	// chmod changes received file and directory permissions
 	CHMOD os.FileMode
-	// Acls preserve ACLs (implies -p)
+	// access-control lists are preserved when enabled
 	ACLs bool
-	// XAttrs preserve extended attributes
+	// xattrs preserves extended attributes
 	XAttrs bool
-	// Owner preserve owner (super-user only)
+	// owner preserves file ownership
 	Owner bool
-	// NoOwner prevent copying owner information to destination
+	// noOwner disables owner preservation
 	NoOwner bool
-	// Group preserve group
+	// group preserves group ownership
 	Group bool
-	// NoGroup prevent copying group information to destination
+	// noGroup disables group preservation
 	NoGroup bool
-	// Devices preserve device files (super-user only)
+	// devices preserves device files
 	Devices bool
-	// Specials preserve special files
+	// specials preserves special files
 	Specials bool
-	// Times preserve modification times
+	// times preserves modification times
 	Times bool
-	// NoTimes prevent copying modification times
+	// noTimes disables modification-time preservation
 	NoTimes bool
-	// omit directories from --times
+	// omitDirTimes omits directories from modification-time preservation
 	OmitDirTimes bool
-	// Super receiver attempts super-user activities
+	// super enables receiver super-user activities
 	Super bool
-	// FakeSuper store/recover privileged attrs using xattrs
+	// fakeSuper stores privileged attributes in extended attributes
 	FakeSuper bool
-	// Sparce handle sparse files efficiently
+	// sparse handles sparse files efficiently
 	Sparse bool
-	// DryRun perform a trial run with no changes made
+	// dryRun reports changes without applying them
 	DryRun bool
-	// WholeFile copy files whole (w/o delta-xfer algorithm)
+	// wholeFile disables the delta-transfer algorithm
 	WholeFile bool
-	// OneFileSystem don't cross filesystem boundaries
+	// oneFileSystem prevents crossing filesystem boundaries
 	OneFileSystem bool
-	// BlockSize block-size=SIZE force a fixed checksum block-size
+	// blockSize sets the checksum block size
 	BlockSize int
-	// Rsh -rsh=COMMAND specify the remote shell to use
+	// rsh sets the remote shell command
 	Rsh string
-	// Existing skip creating new files on receiver
+	// existing skips creation of receiver files
 	Existing bool
-	// IgnoreExisting skip updating files that exist on receiver
+	// ignoreExisting skips receiver files that already exist
 	IgnoreExisting bool
-	// RemoveSourceFiles sender removes synchronized files (non-dir)
+	// removeSourceFiles removes synchronized source files
 	RemoveSourceFiles bool
-	// Delete delete extraneous files from dest dirs
+	// delete removes extraneous destination files
 	Delete bool
-	// DeleteBefore receiver deletes before transfer, not during
+	// deleteBefore removes destination files before transfer
 	DeleteBefore bool
-	// DeleteDuring receiver deletes during the transfer
+	// deleteDuring removes destination files during transfer
 	DeleteDuring bool
-	// DeleteDelay find deletions during, delete after
+	// deleteDelay defers discovered deletions until after transfer
 	DeleteDelay bool
-	// DeleteAfter receiver deletes after transfer, not during
+	// deleteAfter discovers and removes destination files after transfer
 	DeleteAfter bool
-	// DeleteExcluded also delete excluded files from dest dirs
+	// deleteExcluded also removes excluded destination files
 	DeleteExcluded bool
-	// IgnoreErrors delete even if there are I/O errors
+	// ignoreErrors allows deletion despite input or output errors
 	IgnoreErrors bool
-	// Force deletion of dirs even if not empty
+	// force allows deletion of non-empty directories
 	Force bool
-	// MaxDelete max-delete=NUM don't delete more than NUM files
+	// maxDelete limits the number of deleted files
 	MaxDelete int
-	// MaxSize max-size=SIZE don't transfer any file larger than SIZE
+	// maxSize excludes files larger than this size
 	MaxSize int
-	// MinSize don't transfer any file smaller than SIZE
+	// minSize excludes files smaller than this size
 	MinSize int
-	// Partial keep partially transferred files
+	// partial preserves partially transferred files
 	Partial bool
-	// PartialDir partial-dir=DIR
+	// partialDir stores partial transfers in this directory
 	PartialDir string
-	// DelayUpdates put all updated files into place at end
+	// delayUpdates moves updated files into place after transfer
 	DelayUpdates bool
-	// PruneEmptyDirs prune empty directory chains from file-list
+	// pruneEmptyDirs removes empty directory chains from the file list
 	PruneEmptyDirs bool
-	// NumericIDs don't map uid/gid values by user/group name
+	// numericIDs preserves numeric user and group IDs
 	NumericIDs bool
-	// Timeout timeout=SECONDS set I/O timeout in seconds
+	// timeout sets the input and output timeout in seconds
 	Timeout int
-	// Contimeout contimeout=SECONDS set daemon connection timeout in seconds
+	// contimeout sets the daemon connection timeout in seconds
 	Contimeout int
-	// IgnoreTimes don't skip files that match size and time
+	// ignoreTimes transfers files even when size and modification time match
 	IgnoreTimes bool
-	// SizeOnly skip files that match in size
+	// sizeOnly compares files by size
 	SizeOnly bool
-	// ModifyWindow modify-window=NUM compare mod-times with reduced accuracy
+	// modifyWindow selects reduced-accuracy modification-time comparison
 	ModifyWindow bool
-	// TempDir temp-dir=DIR create temporary files in directory DIR
+	// tempDir selects the directory for temporary files
 	TempDir string
-	// Fuzzy find similar file for basis if no dest file
+	// fuzzy searches for a similar receiver file as a transfer basis
 	Fuzzy bool
-	// CompareDest compare-dest=DIR also compare received files relative to DIR
+	// compareDest compares receiver files relative to this directory
 	CompareDest string
-	// CopyDest copy-dest=DIR ... and include copies of unchanged files
+	// copyDest copies unchanged files from this directory
 	CopyDest string
-	// LinkDest link-dest=DIR hardlink to files in DIR when unchanged
+	// linkDest hard-links unchanged files from this directory
 	LinkDest string
-	// Compress file data during the transfer
+	// compress compresses transferred file data
 	Compress bool
-	// CompressLevel explicitly set compression level
+	// compressLevel sets the compression level
 	CompressLevel int
-	// SkipCompress skip-compress=LIST skip compressing files with suffix in LIST
+	// skipCompress excludes matching suffixes from compression
 	SkipCompress []string
-	// CVSExclude auto-ignore files in the same way CVS does
+	// version-control exclusions enable the standard CVS rules
 	CVSExclude bool
-	// Stats give some file-transfer stats
+	// stats emits transfer statistics
 	Stats bool
-	// HumanReadable output numbers in a human-readable format
+	// humanReadable formats numbers for people
 	HumanReadable bool
-	// Progress show progress during transfer
+	// progress emits transfer progress
 	Progress bool
-	// Read daemon-access password from FILE
+	// passwordFile provides the daemon-access password
 	PasswordFile string
-	// limit socket I/O bandwidth
+	// bandwidthLimit limits socket input and output bandwidth
 	BandwidthLimit int
-	// Info
+	// info selects informational messages
 	Info string
-	// Exclude --exclude="", exclude remote paths.
+	// exclude lists excluded remote paths
 	Exclude []string
-	// Include --include="", include remote paths.
+	// include lists included remote paths
 	Include []string
-	// Filter --filter="", include filter rule.
+	// filter sets one rsync filter rule
 	Filter string
-	// Chown --chown="", chown on receipt.
+	// chown sets received ownership
 	Chown string
 
-	// ipv4
+	// ipv4 restricts sockets to IPv4
 	IPv4 bool
-	// ipv6
+	// ipv6 restricts sockets to IPv6
 	IPv6 bool
 
-	//out-format
+	// outFormat enables the configured output format
 	OutFormat bool
 }
 
@@ -215,34 +217,35 @@ func (r Rsync) StderrPipe() (io.ReadCloser, error) {
 	return r.cmd.StderrPipe()
 }
 
-// Run start rsync task
+// Run starts the rsync command and waits for it to finish.
 func (r Rsync) Run() error {
-	if !isExist(r.Destination) {
+	if !strings.Contains(r.Destination, ":") && !isExist(r.Destination) {
 		if err := createDir(r.Destination); err != nil {
 			return err
 		}
 	}
-
 	if err := r.cmd.Start(); err != nil {
 		return err
 	}
-
 	return r.cmd.Wait()
 }
 
-// NewRsync returns task with described options
-func NewRsync(source, destination string, options RsyncOptions) *Rsync {
+// NewRsync constructs an rsync command.
+func NewRsync(
+	ctx context.Context,
+	source string,
+	destination string,
+	options RsyncOptions,
+) *Rsync {
 	arguments := append(getArguments(options), source, destination)
-
 	binaryPath := "rsync"
 	if options.RsyncBinaryPath != "" {
 		binaryPath = options.RsyncBinaryPath
 	}
-
 	return &Rsync{
 		Source:      source,
 		Destination: destination,
-		cmd:         exec.Command(binaryPath, arguments...),
+		cmd:         exec.CommandContext(ctx, binaryPath, arguments...),
 	}
 }
 
@@ -587,36 +590,32 @@ func getArguments(options RsyncOptions) []string {
 
 	if len(options.Include) > 0 {
 		for _, pattern := range options.Include {
-			arguments = append(arguments, fmt.Sprintf("--include=%s", pattern))
+			arguments = append(arguments, "--include="+pattern)
 		}
 	}
 
 	if len(options.Exclude) > 0 {
 		for _, pattern := range options.Exclude {
-			arguments = append(arguments, fmt.Sprintf("--exclude=%s", pattern))
+			arguments = append(arguments, "--exclude="+pattern)
 		}
 	}
 
 	if options.Filter != "" {
-		arguments = append(arguments, fmt.Sprintf("--filter=%s", options.Filter))
+		arguments = append(arguments, "--filter="+options.Filter)
 	}
 
 	if options.Chown != "" {
-		arguments = append(arguments, fmt.Sprintf("--chown=%s", options.Chown))
+		arguments = append(arguments, "--chown="+options.Chown)
 	}
 
 	return arguments
 }
 
 func createDir(dir string) error {
-	cmd := exec.Command("mkdir", "-p", dir)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	return cmd.Wait()
+	return os.MkdirAll(dir, 0o755)
 }
 
-func isExist(p string) bool {
-	stat, err := os.Stat(p)
-	return os.IsExist(err) && stat.IsDir()
+func isExist(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

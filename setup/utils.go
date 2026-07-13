@@ -1,16 +1,7 @@
 package setup
 
-import (
-	"os"
-	"path/filepath"
+import "os"
 
-	"github.com/skiffos/skiff-core/util/execcmd"
-)
-
-// pathToSkiffCore returns the path to this executable.
 func pathToSkiffCore() (string, error) {
-	return filepath.Abs(os.Args[0])
+	return os.Executable()
 }
-
-// execCmd executes a command
-var execCmd = execcmd.ExecCmd

@@ -1,39 +1,37 @@
 package builder
 
 import (
-	"fmt"
+	"context"
 	"os"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
-	rsync "github.com/skiffos/skiff-core/grsync"
+	"github.com/pkg/errors"
+	"github.com/skiffos/skiff-core/grsync"
 )
 
-// fetchSourceRsync copies from a local path to the destination.
-func (b *Builder) fetchSourceRsync(destination, source string) error {
-	st, err := os.Stat(source)
+func (b *Builder) fetchSourceRsync(ctx context.Context, destination string, source string) error {
+	info, err := os.Stat(source)
 	if err != nil {
 		return err
 	}
-	if !st.IsDir() {
-		return fmt.Errorf("Cannot sync from %s, not a directory.", source)
+	if !info.IsDir() {
+		return errors.Errorf("image source is not a directory: %s", source)
 	}
-	log.WithField("source", source).WithField("destination", destination).Debug("Syncing")
+	b.le.
+		WithField("destination", destination).
+		WithField("source", source).
+		Debug("sync image source")
 	if !strings.HasSuffix(destination, "/") {
 		destination += "/"
 	}
 	if !strings.HasSuffix(source, "/") {
 		source += "/"
 	}
-	task := rsync.NewTask(source, destination, rsync.RsyncOptions{
-		// Verbose increase verbosity
-		Verbose: true,
-		// Archve is archive mode; equals -rlptgoD (no -H,-A,-X)
-		Archive: true,
-		// Recurse into directories
+	task := grsync.NewTask(ctx, source, destination, grsync.RsyncOptions{
+		Verbose:   true,
+		Archive:   true,
 		Recursive: true,
-		// Links copy symlinks as symlinks
-		Links: true,
+		Links:     true,
 	})
 	return task.Run()
 }

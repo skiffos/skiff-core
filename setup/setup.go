@@ -2,19 +2,20 @@ package setup
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 
-	"github.com/docker/docker/api/types"
-	dockerclient "github.com/docker/docker/client"
-	log "github.com/sirupsen/logrus"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
 	"github.com/skiffos/skiff-core/util/execcmd"
 )
 
-// Setup is an instance of a setup process.
+// Setup coordinates image, container, and host-user setup.
 type Setup struct {
+	le              *logrus.Entry
 	config          *config.Config
 	workDir         string
 	imageSetups     map[string]*ImageSetup
@@ -22,68 +23,92 @@ type Setup struct {
 	createUsers     bool
 }
 
-// SetupJob is a setup job that we can wait on.
+// SetupJob is a setup operation that can be executed and awaited.
 type SetupJob interface {
-	// Execute is a goroutine to execute the job
-	Execute() error
-	// Wait waits for the job to exit.
-	Wait(log io.Writer) error
+	Execute(context.Context) error
+	Wait(context.Context, io.Writer) error
 }
 
-// ensureSlashPrefix ensures a string has a / prefix
-func ensureSlashPrefix(orig string) string {
-	if !strings.HasPrefix(orig, "/") {
-		return "/" + orig
+func ensureSlashPrefix(value string) string {
+	if !strings.HasPrefix(value, "/") {
+		return "/" + value
 	}
-	return orig
+	return value
 }
 
-// WaitForImage waits for a image ref to be ready.
-func (s *Setup) WaitForImage(ref string, logger io.Writer) error {
-	if setup, ok := s.imageSetups[ref]; ok {
-		return setup.Wait(logger)
+// WaitForImage waits for a configured image setup to complete.
+func (s *Setup) WaitForImage(ctx context.Context, ref string, logOut io.Writer) error {
+	imageSetup, ok := s.imageSetups[ref]
+	if !ok {
+		return errors.Errorf("image is not declared: %s", ref)
 	}
-	return fmt.Errorf("No image %s declared!", ref)
+	return imageSetup.Wait(ctx, logOut)
 }
 
-// WaitForContainer waits for a container to be ready.
-func (s *Setup) WaitForContainer(name string, logOut io.Writer) (string, error) {
-	if setup, ok := s.containerSetups[name]; ok {
-		return setup.WaitWithId(logOut)
+// WaitForContainer waits for a configured container setup to complete.
+func (s *Setup) WaitForContainer(ctx context.Context, name string, logOut io.Writer) (string, error) {
+	containerSetup, ok := s.containerSetups[name]
+	if !ok {
+		return "", errors.Errorf("container is not declared: %s", name)
 	}
-	return "", fmt.Errorf("No container %s declared!", name)
+	return containerSetup.WaitWithID(ctx, logOut)
 }
 
-// CheckHasContainer checks if there is a container with the specified name.
+// CheckHasContainer reports whether a container is configured.
 func (s *Setup) CheckHasContainer(name string) bool {
 	_, ok := s.containerSetups[name]
 	return ok
 }
 
-// ExecCmdContainer executes a command in a container.
-func (s *Setup) ExecCmdContainer(containerID, userID string, stdIn io.Reader, stdOut, stdErr io.Writer, cmd string, args ...string) error {
-	dockerClient, err := dockerclient.NewEnvClient()
+// ExecCmdContainer executes a command in a configured Docker container.
+func (s *Setup) ExecCmdContainer(
+	ctx context.Context,
+	containerID string,
+	userID string,
+	stdIn io.Reader,
+	stdOut io.Writer,
+	stdErr io.Writer,
+	cmd string,
+	args ...string,
+) error {
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return err
 	}
-	defer dockerClient.Close()
+	defer func() {
+		if err := dockerClient.Close(); err != nil {
+			s.le.WithError(err).Debug("close Docker client")
+		}
+	}()
 
-	// Ensure container is running.
-	_ = dockerClient.ContainerStart(context.Background(), containerID, types.ContainerStartOptions{})
+	inspection, err := dockerClient.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return err
+	}
+	if inspection.State == nil || !inspection.State.Running {
+		if err := dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+			return errors.Wrap(err, "start container")
+		}
+	}
 
 	return execcmd.ExecCmdContainer(
-		context.Background(),
+		ctx,
+		s.le,
 		dockerClient,
 		containerID,
 		userID,
-		stdIn, stdOut, stdErr,
-		cmd, args...,
+		stdIn,
+		stdOut,
+		stdErr,
+		cmd,
+		args...,
 	)
 }
 
-// NewSetup builds a new Setup instance.
-func NewSetup(conf *config.Config, workDir string, createUsers bool) *Setup {
+// NewSetup constructs a setup coordinator.
+func NewSetup(le *logrus.Entry, conf *config.Config, workDir string, createUsers bool) *Setup {
 	return &Setup{
+		le:              le,
 		config:          conf,
 		workDir:         workDir,
 		createUsers:     createUsers,
@@ -92,60 +117,61 @@ func NewSetup(conf *config.Config, workDir string, createUsers bool) *Setup {
 	}
 }
 
-// Execute runs the setup process.
-func (s *Setup) Execute() error {
+// Execute runs all configured setup jobs and returns the first error.
+func (s *Setup) Execute(ctx context.Context) error {
 	var jobs []SetupJob
-
 	addImageJob := func(image *config.ConfigImage) {
-		pend := NewImageSetup(image, s.workDir)
-		jobs = append(jobs, pend)
-		s.imageSetups[image.Name()] = pend
+		imageSetup := NewImageSetup(s.le, image, s.workDir)
+		jobs = append(jobs, imageSetup)
+		s.imageSetups[image.Name()] = imageSetup
 	}
 
 	for _, image := range s.config.Images {
 		addImageJob(image)
 	}
-
-	for _, ctr := range s.config.Containers {
-		if ctr.Image != "" {
-			_, ok := s.imageSetups[ctr.Image]
-			if !ok {
-				imgJob := &config.ConfigImage{}
-				imgJob.SetName(ctr.Image)
-				addImageJob(imgJob)
+	for _, containerConfig := range s.config.Containers {
+		if containerConfig.Image != "" {
+			if _, ok := s.imageSetups[containerConfig.Image]; !ok {
+				image := &config.ConfigImage{}
+				image.SetName(containerConfig.Image)
+				addImageJob(image)
 			}
 		}
-		setup := NewContainerSetup(ctr, s)
-		jobs = append(jobs, setup)
-		s.containerSetups[ctr.Name()] = setup
+		containerSetup := NewContainerSetup(s.le, containerConfig, s)
+		jobs = append(jobs, containerSetup)
+		s.containerSetups[containerConfig.Name()] = containerSetup
 	}
-
 	for _, user := range s.config.Users {
-		setup := NewUserSetup(user, s, s.createUsers)
-		jobs = append(jobs, setup)
+		jobs = append(jobs, NewUserSetup(s.le, user, s, s.createUsers))
 	}
 
-	results := make(chan error)
-	pendingJobs := len(jobs)
-	originalJobs := pendingJobs
+	results := make(chan error, len(jobs))
 	for _, job := range jobs {
 		go func(job SetupJob) {
-			results <- job.Execute()
+			results <- job.Execute(ctx)
 		}(job)
 	}
 
-	var firstError error = nil
-	for pendingJobs > 0 {
-		log.Debugf("Waiting for %d/%d jobs...", pendingJobs, originalJobs)
-		err := <-results
-		if err != nil {
-			log.WithError(err).Error("Job error")
-			if firstError == nil {
-				firstError = err
+	var firstError error
+	for pending := len(jobs); pending > 0; pending-- {
+		s.le.Debugf("waiting for %d/%d setup jobs", pending, len(jobs))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-results:
+			if err != nil {
+				s.le.WithError(err).Error("setup job failed")
+				if firstError == nil {
+					firstError = err
+				}
 			}
 		}
-		pendingJobs--
 	}
-
 	return firstError
 }
+
+// _ is a type assertion.
+var (
+	_ ImageWaiter     = ((*Setup)(nil))
+	_ ContainerWaiter = ((*Setup)(nil))
+)

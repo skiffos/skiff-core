@@ -1,38 +1,32 @@
 //go:build linux
-// +build linux
 
 package builder
 
 import (
 	"runtime"
-	"syscall"
 
 	"github.com/paralin/scratchbuild/arch"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
-// detectMachineId returns uname -m or GOARCH
-func detectMachineId() string {
-	un := &syscall.Utsname{}
-	mname := runtime.GOARCH
-	if err := syscall.Uname(un); err != nil {
-		log.WithError(err).Warn("Unable to detect arch via uname, using GOARCH.")
-	} else {
-		var data []byte
-		for _, byt := range un.Machine[:] {
-			if byt == 0 {
-				break
-			}
-			data = append(data, byte(byt))
-		}
-		mname = string(data)
+func detectMachineID(le *logrus.Entry) string {
+	uname := &unix.Utsname{}
+	if err := unix.Uname(uname); err != nil {
+		le.WithError(err).Warn("detect architecture with uname; using GOARCH")
+		return runtime.GOARCH
 	}
-	return mname
+	machine := make([]byte, 0, len(uname.Machine))
+	for _, value := range uname.Machine {
+		if value == 0 {
+			break
+		}
+		machine = append(machine, byte(value))
+	}
+	return string(machine)
 }
 
-// detectArch attempts to detect the arch
-func detectArch() arch.KnownArch {
-	uname := detectMachineId()
-	arc, _ := arch.ParseArch(uname)
-	return arc
+func detectArch(le *logrus.Entry) arch.KnownArch {
+	knownArch, _ := arch.ParseArch(detectMachineID(le))
+	return knownArch
 }

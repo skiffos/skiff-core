@@ -2,22 +2,26 @@ package grsync
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"math"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/pkg/errors"
 )
 
-// Task is high-level API under rsync
+// Task runs rsync and exposes transfer progress and output.
 type Task struct {
 	rsync *Rsync
 
-	state *State
-	log   *Log
+	mtx   sync.RWMutex
+	state State
+	log   Log
 }
 
-// State contains information about rsync process
+// State describes rsync transfer progress.
 type State struct {
 	Remain   int     `json:"remain"`
 	Total    int     `json:"total"`
@@ -25,33 +29,33 @@ type State struct {
 	Progress float64 `json:"progress"`
 }
 
-// Log contains raw stderr and stdout outputs
+// Log contains raw rsync standard output and error.
 type Log struct {
 	Stderr string `json:"stderr"`
 	Stdout string `json:"stdout"`
 }
 
-// State returns inforation about rsync processing task
-func (t Task) State() State {
-	return *t.state
+// State returns a snapshot of current rsync progress.
+func (t *Task) State() State {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+	return t.state
 }
 
-// Log return structure which contains raw stderr and stdout outputs
-func (t Task) Log() Log {
-	return Log{
-		Stderr: t.log.Stderr,
-		Stdout: t.log.Stdout,
-	}
+// Log returns a snapshot of rsync output.
+func (t *Task) Log() Log {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+	return t.log
 }
 
-// Run starts rsync process with options
+// Run starts rsync and waits for transfer and output processing to finish.
 func (t *Task) Run() error {
 	stderr, err := t.rsync.StderrPipe()
 	if err != nil {
 		return err
 	}
 	defer stderr.Close()
-
 	stdout, err := t.rsync.StdoutPipe()
 	if err != nil {
 		return err
@@ -59,85 +63,87 @@ func (t *Task) Run() error {
 	defer stdout.Close()
 
 	var wg sync.WaitGroup
-	go processStdout(&wg, t, stdout)
-	go processStderr(&wg, t, stderr)
 	wg.Add(2)
+	scanErrors := make(chan error, 2)
+	go func() {
+		defer wg.Done()
+		scanErrors <- t.processStdout(stdout)
+	}()
+	go func() {
+		defer wg.Done()
+		scanErrors <- t.processStderr(stderr)
+	}()
 
-	err = t.rsync.Run()
+	runError := t.rsync.Run()
 	wg.Wait()
-
-	return err
+	close(scanErrors)
+	if runError != nil {
+		return runError
+	}
+	for scanError := range scanErrors {
+		if scanError != nil {
+			return errors.Wrap(scanError, "read rsync output")
+		}
+	}
+	return nil
 }
 
-// NewTask returns new rsync task
-func NewTask(source, destination string, rsyncOptions RsyncOptions) *Task {
-	// Force set required options
+// NewTask constructs an rsync task.
+func NewTask(
+	ctx context.Context,
+	source string,
+	destination string,
+	rsyncOptions RsyncOptions,
+) *Task {
 	rsyncOptions.HumanReadable = true
 	rsyncOptions.Partial = true
 	rsyncOptions.Progress = true
 	rsyncOptions.Archive = true
-
-	return &Task{
-		rsync: NewRsync(source, destination, rsyncOptions),
-		state: &State{},
-		log:   &Log{},
-	}
+	return &Task{rsync: NewRsync(ctx, source, destination, rsyncOptions)}
 }
 
-func processStdout(wg *sync.WaitGroup, task *Task, stdout io.Reader) {
-	const maxPercents = float64(100)
+func (t *Task) processStdout(stdout io.Reader) error {
+	const maxPercent = float64(100)
 	const minDivider = 1
-
-	defer wg.Done()
 
 	progressMatcher := newMatcher(`\(.+-chk=(\d+.\d+)`)
 	speedMatcher := newMatcher(`(\d+\.\d+.{2}\/s)`)
-
-	// Extract data from strings:
-	//         999,999 99%  999.99kB/s    0:00:59 (xfr#9, to-chk=999/9999)
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
-		logStr := scanner.Text()
-		if progressMatcher.Match(logStr) {
-			task.state.Remain, task.state.Total = getTaskProgress(progressMatcher.Extract(logStr))
-
-			copiedCount := float64(task.state.Total - task.state.Remain)
-			task.state.Progress = copiedCount / math.Max(float64(task.state.Total), float64(minDivider)) * maxPercents
+		line := scanner.Text()
+		t.mtx.Lock()
+		if progressMatcher.match(line) {
+			t.state.Remain, t.state.Total = getTaskProgress(progressMatcher.extract(line))
+			copiedCount := float64(t.state.Total - t.state.Remain)
+			t.state.Progress = copiedCount / math.Max(float64(t.state.Total), float64(minDivider)) * maxPercent
 		}
-
-		if speedMatcher.Match(logStr) {
-			task.state.Speed = getTaskSpeed(speedMatcher.ExtractAllStringSubmatch(logStr, 2))
+		if speedMatcher.match(line) {
+			t.state.Speed = getTaskSpeed(speedMatcher.extractAllStringSubmatch(line, 2))
 		}
-
-		task.log.Stdout += logStr + "\n"
+		t.log.Stdout += line + "\n"
+		t.mtx.Unlock()
 	}
+	return scanner.Err()
 }
 
-func processStderr(wg *sync.WaitGroup, task *Task, stderr io.Reader) {
-	defer wg.Done()
-
+func (t *Task) processStderr(stderr io.Reader) error {
 	scanner := bufio.NewScanner(stderr)
 	for scanner.Scan() {
-		task.log.Stderr += scanner.Text() + "\n"
+		t.mtx.Lock()
+		t.log.Stderr += scanner.Text() + "\n"
+		t.mtx.Unlock()
 	}
+	return scanner.Err()
 }
 
-func getTaskProgress(remTotalString string) (int, int) {
-	const remTotalSeparator = "/"
-	const numbersCount = 2
-	const (
-		indexRem = iota
-		indexTotal
-	)
-
-	info := strings.Split(remTotalString, remTotalSeparator)
-	if len(info) < numbersCount {
+func getTaskProgress(remainTotal string) (int, int) {
+	const expectedParts = 2
+	parts := strings.Split(remainTotal, "/")
+	if len(parts) < expectedParts {
 		return 0, 0
 	}
-
-	remain, _ := strconv.Atoi(info[indexRem])
-	total, _ := strconv.Atoi(info[indexTotal])
-
+	remain, _ := strconv.Atoi(parts[0])
+	total, _ := strconv.Atoi(parts[1])
 	return remain, total
 }
 
@@ -145,6 +151,5 @@ func getTaskSpeed(data [][]string) string {
 	if len(data) < 2 || len(data[1]) < 2 {
 		return ""
 	}
-
 	return data[1][1]
 }

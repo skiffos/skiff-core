@@ -1,12 +1,22 @@
 package setup
 
 import (
+	"context"
 	"io"
 )
 
-// ContainerWaiter waits for a container to be ready.
+// ContainerWaiter waits for container setup and executes container commands.
 type ContainerWaiter interface {
-	CheckHasContainer(name string) bool
-	WaitForContainer(name string, logOut io.Writer) (string, error)
-	ExecCmdContainer(containerID, userID string, stdIn io.Reader, stdOut, stdErr io.Writer, cmd string, args ...string) error
+	CheckHasContainer(string) bool
+	WaitForContainer(context.Context, string, io.Writer) (string, error)
+	ExecCmdContainer(
+		context.Context,
+		string,
+		string,
+		io.Reader,
+		io.Writer,
+		io.Writer,
+		string,
+		...string,
+	) error
 }

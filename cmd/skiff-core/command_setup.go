@@ -4,62 +4,65 @@ import (
 	"os"
 	"strings"
 
+	"github.com/aperturerobotics/cli"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/setup"
-	"github.com/urfave/cli/v2"
 )
 
-var setupArgs struct {
-	CreateUsers bool
-	WorkDir     string
+type setupArgs struct {
+	createUsers bool
+	workDir     string
 }
 
-// SetupCommands define the commands for "setup"
-var SetupCommands cli.Commands = []*cli.Command{
-	{
+func buildSetupCommand(le *logrus.Entry, appArgs *appArgs) *cli.Command {
+	args := &setupArgs{}
+	return &cli.Command{
+		Name:  "setup",
+		Usage: "Set up users and containers.",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:        "create-users",
-				Usage:       "If set, core will attempt to create missing users.",
-				Destination: &setupArgs.CreateUsers,
+				Usage:       "Create missing host users.",
+				Destination: &args.createUsers,
 				EnvVars:     []string{"SKIFF_CORE_CREATE_USERS"},
 			},
 			&cli.StringFlag{
 				Name:        "work-dir",
-				Usage:       "If set, core will use the directory for working files.",
-				Destination: &setupArgs.WorkDir,
+				Usage:       "Use this directory for temporary build files.",
+				Destination: &args.workDir,
 				EnvVars:     []string{"SKIFF_CORE_WORK_DIR"},
 			},
 		},
-		Name:  "setup",
-		Usage: "Sets up users and containers.",
 		Action: func(c *cli.Context) error {
-			// read the config
-			conf, err := parseGlobalConfig()
+			conf, err := appArgs.parseConfig()
 			if err != nil {
-				return cli.NewExitError("Unable to parse config: "+err.Error(), 1)
+				return errors.Wrap(err, "parse config")
 			}
 
-			setupArgs.WorkDir = strings.TrimSpace(setupArgs.WorkDir)
-			if setupArgs.WorkDir != "" {
-				if _, err := os.Stat(setupArgs.WorkDir); err != nil {
-					if os.IsNotExist(err) {
-						// if we created the dir, remove it afterwards.
-						defer os.RemoveAll(setupArgs.WorkDir)
+			args.workDir = strings.TrimSpace(args.workDir)
+			if args.workDir != "" {
+				info, err := os.Stat(args.workDir)
+				switch {
+				case err == nil && !info.IsDir():
+					return errors.Errorf("working path is not a directory: %s", args.workDir)
+				case err == nil:
+				case os.IsNotExist(err):
+					if err := os.MkdirAll(args.workDir, 0o755); err != nil {
+						return errors.Wrap(err, "create working directory")
 					}
-					err = os.Mkdir(setupArgs.WorkDir, 0755)
-					if err != nil {
-						return cli.NewExitError("Unable to create working directory: "+err.Error(), 1)
-					}
+					defer func() {
+						if err := os.RemoveAll(args.workDir); err != nil {
+							le.WithError(err).WithField("path", args.workDir).Warn("remove working directory")
+						}
+					}()
+				default:
+					return errors.Wrap(err, "inspect working directory")
 				}
 			}
 
-			s := setup.NewSetup(conf, setupArgs.WorkDir, setupArgs.CreateUsers)
-
-			err = s.Execute()
-			if err != nil {
-				return cli.NewExitError(err.Error(), 1)
-			}
-			return nil
+			setupRunner := setup.NewSetup(le, conf, args.workDir, args.createUsers)
+			return setupRunner.Execute(c.Context)
 		},
-	},
+	}
 }

@@ -1,12 +1,9 @@
 package shell
 
-import (
-	"fmt"
-	"os"
-)
+import "os"
 
 // preservedEnvVars are environment variables to include in the shell.
-var preservedEnvVars []string = []string{
+var preservedEnvVars = []string{
 	"SSH_CONNECTION",
 	"SSH_CLIENT",
 	"SSH_TTY",
@@ -20,7 +17,7 @@ func buildShellEnv() []string {
 	for _, name := range preservedEnvVars {
 		val, ok := os.LookupEnv(name)
 		if ok {
-			env = append(env, fmt.Sprintf("%s=%s", name, val))
+			env = append(env, name+"="+val)
 		}
 	}
 	return env

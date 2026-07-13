@@ -5,11 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
 )
 
 func TestBuildTargetCmdWrapsExecCommandsWithUserShell(t *testing.T) {
-	s := NewShell("/home/core")
+	s := NewShell(logrus.NewEntry(logrus.New()), "/home/core")
 	cmd, err := s.buildTargetCmd(&config.ConfigUserShell{
 		Shell: []string{"/bin/bash"},
 	}, "scp -t ~/linux.iso", true)
@@ -24,7 +25,7 @@ func TestBuildTargetCmdWrapsExecCommandsWithUserShell(t *testing.T) {
 }
 
 func TestBuildTargetCmdRoutesSFTPSubsystemToContainerServer(t *testing.T) {
-	s := NewShell("/home/core")
+	s := NewShell(logrus.NewEntry(logrus.New()), "/home/core")
 	cmd, err := s.buildTargetCmd(&config.ConfigUserShell{
 		Shell: []string{"/bin/bash"},
 	}, "/usr/libexec/sftp-server -e -l INFO", true)
@@ -48,7 +49,7 @@ func TestBuildTargetCmdRoutesSFTPSubsystemToContainerServer(t *testing.T) {
 }
 
 func TestBuildTargetCmdRoutesInternalSFTPToContainerServer(t *testing.T) {
-	s := NewShell("/home/core")
+	s := NewShell(logrus.NewEntry(logrus.New()), "/home/core")
 	cmd, err := s.buildTargetCmd(&config.ConfigUserShell{}, "internal-sftp -d /home/core", true)
 	if err != nil {
 		t.Fatal(err.Error())

@@ -6,13 +6,14 @@ import (
 	"github.com/moby/term"
 )
 
-// InStream is an input stream used by the DockerCli to read user input
+// InStream reads command input and optionally owns the underlying reader.
 type InStream struct {
 	CommonStream
 	in    io.Reader
 	close bool
 }
 
+// Read reads from the underlying input.
 func (i *InStream) Read(p []byte) (int, error) {
 	if i.in == nil {
 		return 0, io.EOF
@@ -20,26 +21,29 @@ func (i *InStream) Read(p []byte) (int, error) {
 	return i.in.Read(p)
 }
 
-// Close implements the Closer interface
+// Close closes the underlying reader when ownership was requested.
 func (i *InStream) Close() error {
-	if i.in != nil {
-		if c, ok := i.in.(io.ReadCloser); i.close && ok {
-			return c.Close()
-		}
+	closer, ok := i.in.(io.ReadCloser)
+	if !i.close || !ok {
+		return nil
 	}
-	return nil
+	return closer.Close()
 }
 
-// IsTty checks if the input is a tty.
-func (i *InStream) IsTty() bool {
+// IsTTY reports whether the input is a terminal.
+func (i *InStream) IsTTY() bool {
 	return i.isTerminal
 }
 
-// NewInStream returns a new InStream object from a ReadCloser
-func NewInStream(in io.Reader, close bool) io.ReadCloser {
+// NewInStream constructs an input stream around a reader.
+func NewInStream(in io.Reader, closeReader bool) io.ReadCloser {
 	if in == nil {
 		return nil
 	}
 	fd, isTerminal := term.GetFdInfo(in)
-	return &InStream{CommonStream: CommonStream{fd: fd, isTerminal: isTerminal}, in: in, close: close}
+	return &InStream{
+		CommonStream: CommonStream{fd: fd, isTerminal: isTerminal},
+		in:           in,
+		close:        closeReader,
+	}
 }

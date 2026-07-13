@@ -1,10 +1,11 @@
 package setup
 
 import (
+	"context"
 	"io"
 )
 
-// ImageWaiter can wait for an image to complete.
+// ImageWaiter waits for an image setup to complete.
 type ImageWaiter interface {
-	WaitForImage(ref string, logOutput io.Writer) error
+	WaitForImage(context.Context, string, io.Writer) error
 }

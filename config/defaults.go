@@ -1,5 +1,6 @@
 package config
 
+// DefaultConfig constructs the default skiff-core configuration.
 func DefaultConfig() *Config {
 	conf := &Config{
 		Users: map[string]*ConfigUser{
