@@ -7,16 +7,16 @@ require (
 	github.com/aperturerobotics/fsnotify v1.9.1-0.20260506231828-931cb4bf1761
 	github.com/docker/cli v28.5.2+incompatible
 	github.com/docker/docker v28.5.2+incompatible
-	github.com/docker/go-connections v0.7.0
+	github.com/docker/go-connections v0.8.1
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/moby/sys/signal v0.7.1
 	github.com/moby/term v0.5.2
 	github.com/paralin/scratchbuild v1.3.1
 	github.com/pkg/errors v0.9.1
-	github.com/sirupsen/logrus v1.9.5-0.20260508084601-d4a50659cfd6
-	golang.org/x/crypto v0.54.0
-	golang.org/x/sys v0.47.0
+	github.com/sirupsen/logrus v1.10.2
+	golang.org/x/crypto v0.57.0
+	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -72,8 +72,8 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.19.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
-	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20230711160842-782d3b101e98 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
