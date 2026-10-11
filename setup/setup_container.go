@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -16,13 +17,20 @@ import (
 
 // ContainerSetup creates one configured Docker container.
 type ContainerSetup struct {
-	le     *logrus.Entry
+	// le is the logger tagged with the container name.
+	le *logrus.Entry
+	// config is the container configuration to create.
 	config *config.ConfigContainer
+	// waiter waits for the container's image to exist.
 	waiter ImageWaiter
+	// logger copies setup progress to every waiting writer.
 	logger multiwriter.MultiWriter
-	done   chan struct{}
+	// done is closed when Execute returns.
+	done chan struct{}
 
-	err         error
+	// err is the Execute result, valid once done is closed.
+	err error
+	// containerID is the created or found container, valid once done is closed.
 	containerID string
 }
 
@@ -40,24 +48,25 @@ func NewContainerSetup(
 	}
 }
 
+// buildDockerContainer converts the container configuration to Docker create options.
 func (c *ContainerSetup) buildDockerContainer() (*container.Config, *container.HostConfig, error) {
+	// Describe the process. Docker names carry a leading slash; hostnames must not.
 	conf := c.config
 	containerConfig := &container.Config{
-		Hostname:   conf.Name(),
+		Hostname:   strings.TrimPrefix(conf.Name(), "/"),
 		Image:      conf.Image,
 		Entrypoint: conf.Entrypoint,
 		Cmd:        conf.Cmd,
+		Env:        conf.Env,
 		WorkingDir: conf.WorkingDirectory,
 		Tty:        conf.Tty,
 		StopSignal: conf.StopSignal,
 	}
-	for _, env := range conf.Env {
-		containerConfig.Env = append(containerConfig.Env, env)
-	}
 
+	// Describe the host resources, mounting tini as init unless disabled.
 	useInit := !conf.DisableInit
 	hostConfig := &container.HostConfig{
-		AutoRemove:  false,
+		Binds:       conf.Mounts,
 		CapAdd:      conf.CapAdd,
 		DNS:         conf.DNS,
 		DNSSearch:   conf.DNSSearch,
@@ -67,6 +76,14 @@ func (c *ContainerSetup) buildDockerContainer() (*container.Config, *container.H
 		SecurityOpt: conf.SecurityOpt,
 		Tmpfs:       conf.TmpFs,
 	}
+	if useInit {
+		hostConfig.Binds = append(hostConfig.Binds, "/usr/bin/tini:/dev/init")
+	}
+	if conf.RestartPolicy != "" {
+		hostConfig.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(conf.RestartPolicy)}
+	}
+
+	// Publish each TCP port, letting Docker choose the host port when it is zero.
 	for _, portConfig := range conf.Ports {
 		if portConfig.HostPort < 0 || portConfig.HostPort > 65535 {
 			return nil, nil, errors.Errorf("invalid host TCP port: %d", portConfig.HostPort)
@@ -86,15 +103,8 @@ func (c *ContainerSetup) buildDockerContainer() (*container.Config, *container.H
 		}
 		hostConfig.PortBindings[port] = []nat.PortBinding{{HostPort: hostPort}}
 	}
-	if restartPolicy := conf.RestartPolicy; restartPolicy != "" {
-		hostConfig.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(restartPolicy)}
-	}
-	if len(conf.Mounts) > 0 {
-		hostConfig.Binds = conf.Mounts
-	}
-	if useInit {
-		hostConfig.Binds = append(hostConfig.Binds, "/usr/bin/tini:/dev/init")
-	}
+
+	// Share each requested host namespace.
 	if conf.HostNetwork {
 		hostConfig.NetworkMode = container.NetworkMode("host")
 	}
@@ -112,11 +122,13 @@ func (c *ContainerSetup) buildDockerContainer() (*container.Config, *container.H
 
 // Execute creates or finds the container and publishes completion to waiters.
 func (c *ContainerSetup) Execute(ctx context.Context) (executeError error) {
+	// Publish the result to waiters when setup returns.
 	defer func() {
 		c.err = executeError
 		close(c.done)
 	}()
 
+	// Connect to Docker.
 	if c.config.Image == "" {
 		return errors.Errorf("container must specify an image: %s", c.config.Name())
 	}
@@ -130,24 +142,8 @@ func (c *ContainerSetup) Execute(ctx context.Context) (executeError error) {
 		}
 	}()
 
-	checkContainerExists := func() (bool, error) {
-		containers, err := dockerClient.ContainerList(ctx, container.ListOptions{All: true})
-		if err != nil {
-			return false, err
-		}
-		for _, candidate := range containers {
-			for _, name := range candidate.Names {
-				if name == c.config.Name() {
-					c.le.Debug("container already exists")
-					c.containerID = candidate.ID
-					return true, nil
-				}
-			}
-		}
-		return false, nil
-	}
-
-	exists, err := checkContainerExists()
+	// Find an existing container by name, before and after its image is ready.
+	exists, err := c.findContainer(ctx, dockerClient)
 	if err != nil {
 		return err
 	}
@@ -155,46 +151,58 @@ func (c *ContainerSetup) Execute(ctx context.Context) (executeError error) {
 		if err := c.waiter.WaitForImage(ctx, c.config.Image, &c.logger); err != nil {
 			return err
 		}
-		exists, err = checkContainerExists()
+		exists, err = c.findContainer(ctx, dockerClient)
 		if err != nil {
 			return err
 		}
 	}
+
+	// Create the container when none exists.
 	if !exists {
 		containerConfig, hostConfig, err := c.buildDockerContainer()
 		if err != nil {
 			return err
 		}
-		result, err := dockerClient.ContainerCreate(
-			ctx,
-			containerConfig,
-			hostConfig,
-			nil,
-			nil,
-			c.config.Name(),
-		)
+		result, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, c.config.Name())
 		if err != nil {
 			return err
 		}
 		c.containerID = result.ID
 		c.le.WithField("id", result.ID).Debug("container created")
 		for _, warning := range result.Warnings {
-			c.le.Warnf("DRemoveWriterrning: %s", warning)
+			c.le.Warnf("Docker warning: %s", warning)
 		}
 	}
 
+	// Start the container when configured to.
 	if _, err := c.logger.Write([]byte("Container created/found with ID: " + c.containerID + "\n")); err != nil {
 		return errors.Wrap(err, "write container setup log")
 	}
-	if c.config.StartAfterCreate {
-		if _, err := c.logger.Write([]byte("Starting container " + c.containerID + "...\n")); err != nil {
-			return errors.Wrap(err, "write container setup log")
-		}
-		if err := dockerClient.ContainerStart(ctx, c.containerID, container.StartOptions{}); err != nil {
-			return errors.Wrap(err, "start container")
+	if !c.config.StartAfterCreate {
+		return nil
+	}
+	if _, err := c.logger.Write([]byte("Starting container " + c.containerID + "...\n")); err != nil {
+		return errors.Wrap(err, "write container setup log")
+	}
+	return errors.Wrap(dockerClient.ContainerStart(ctx, c.containerID, container.StartOptions{}), "start container")
+}
+
+// findContainer records the ID of the container with the configured name and reports whether it exists.
+func (c *ContainerSetup) findContainer(ctx context.Context, dockerClient *client.Client) (bool, error) {
+	containers, err := dockerClient.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return false, err
+	}
+	for _, candidate := range containers {
+		for _, name := range candidate.Names {
+			if name == c.config.Name() {
+				c.le.Debug("container already exists")
+				c.containerID = candidate.ID
+				return true, nil
+			}
 		}
 	}
-	return nil
+	return false, nil
 }
 
 // Wait waits for container setup completion or context cancellation.
@@ -218,5 +226,5 @@ func (c *ContainerSetup) WaitWithID(ctx context.Context, logOut io.Writer) (stri
 	return c.containerID, nil
 }
 
-// _ is a type assertion.
-var _ SetupJob = ((*ContainerSetup)(nil))
+// _ asserts that ContainerSetup is a SetupJob.
+var _ SetupJob = (*ContainerSetup)(nil)
