@@ -5,9 +5,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/jsonmessage"
+	"github.com/moby/moby/client"
+	"github.com/moby/moby/client/pkg/jsonmessage"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/builder"
@@ -38,11 +37,11 @@ func NewImageSetup(le *logrus.Entry, conf *config.ConfigImage, workDir string) *
 }
 
 func (i *ImageSetup) checkImageExists(ctx context.Context, dockerClient client.APIClient, ref string) (bool, error) {
-	summaries, err := dockerClient.ImageList(ctx, image.ListOptions{})
+	summaries, err := dockerClient.ImageList(ctx, client.ImageListOptions{})
 	if err != nil {
 		return false, err
 	}
-	for _, summary := range summaries {
+	for _, summary := range summaries.Items {
 		for _, name := range summary.RepoTags {
 			if name == ref {
 				return true, nil
@@ -64,7 +63,7 @@ func (i *ImageSetup) pull(ctx context.Context, dockerClient client.APIClient) (p
 		}
 	}()
 
-	response, err := dockerClient.ImagePull(ctx, ref, image.PullOptions{})
+	response, err := dockerClient.ImagePull(ctx, ref, client.ImagePullOptions{})
 	if err != nil {
 		return err
 	}
@@ -73,7 +72,7 @@ func (i *ImageSetup) pull(ctx context.Context, dockerClient client.APIClient) (p
 		return err
 	}
 	if conf.Registry != "" {
-		if err := dockerClient.ImageTag(ctx, ref, conf.ImageName()); err != nil {
+		if _, err := dockerClient.ImageTag(ctx, client.ImageTagOptions{Source: ref, Target: conf.ImageName()}); err != nil {
 			return err
 		}
 	}
@@ -107,7 +106,7 @@ func (i *ImageSetup) Execute(ctx context.Context) (executeError error) {
 		close(i.done)
 	}()
 
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
 		return err
 	}

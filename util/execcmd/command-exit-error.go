@@ -4,13 +4,14 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 )
 
 // ExecInspector inspects the state of a Docker exec process.
 type ExecInspector interface {
-	ContainerExecInspect(context.Context, string) (container.ExecInspect, error)
+	// ExecInspect returns the state of the exec process execID.
+	ExecInspect(context.Context, string, client.ExecInspectOptions) (client.ExecInspectResult, error)
 }
 
 // CommandExitError reports a non-zero Docker exec exit status.
@@ -35,7 +36,8 @@ func (e *CommandExitError) ExitCode() int {
 
 // InspectExecExit returns an error when the Docker exec process did not exit successfully.
 func InspectExecExit(ctx context.Context, inspector ExecInspector, execID string) error {
-	result, err := inspector.ContainerExecInspect(ctx, execID)
+	// A closed stream should mean the process exited; check that it did.
+	result, err := inspector.ExecInspect(ctx, execID, client.ExecInspectOptions{})
 	if err != nil {
 		return errors.Wrap(err, "inspect Docker exec")
 	}

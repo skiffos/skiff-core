@@ -5,8 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
@@ -71,7 +70,7 @@ func (s *Setup) ExecCmdContainer(
 	cmd string,
 	args ...string,
 ) error {
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
 		return err
 	}
@@ -81,12 +80,12 @@ func (s *Setup) ExecCmdContainer(
 		}
 	}()
 
-	inspection, err := dockerClient.ContainerInspect(ctx, containerID)
+	inspection, err := dockerClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return err
 	}
-	if inspection.State == nil || !inspection.State.Running {
-		if err := dockerClient.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+	if state := inspection.Container.State; state == nil || !state.Running {
+		if _, err := dockerClient.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
 			return errors.Wrap(err, "start container")
 		}
 	}

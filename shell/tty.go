@@ -5,8 +5,7 @@ import (
 	"os"
 	osSignal "os/signal"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 	"github.com/moby/sys/signal"
 	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/util/execcmd"
@@ -14,7 +13,7 @@ import (
 
 func resizeTTYTo(
 	ctx context.Context,
-	dockerClient client.ContainerAPIClient,
+	dockerClient client.APIClient,
 	id string,
 	height uint,
 	width uint,
@@ -24,11 +23,12 @@ func resizeTTYTo(
 		return nil
 	}
 
-	options := container.ResizeOptions{Height: height, Width: width}
 	if isExec {
-		return dockerClient.ContainerExecResize(ctx, id, options)
+		_, err := dockerClient.ExecResize(ctx, id, client.ExecResizeOptions{Height: height, Width: width})
+		return err
 	}
-	return dockerClient.ContainerResize(ctx, id, options)
+	_, err := dockerClient.ContainerResize(ctx, id, client.ContainerResizeOptions{Height: height, Width: width})
+	return err
 }
 
 // MonitorTTYSize updates a container TTY until ctx ends.

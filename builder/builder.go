@@ -7,18 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/docker/cli/cli/command/image/build"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/docker/docker/pkg/progress"
-	"github.com/docker/docker/pkg/streamformatter"
+	"github.com/moby/moby/client"
 	"github.com/paralin/scratchbuild/stack"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
-	"golang.org/x/crypto/ssh/terminal"
 )
 
 // Builder builds a configured Docker image from a source tree.
@@ -93,7 +86,7 @@ func (b *Builder) Build(ctx context.Context) error {
 }
 
 func (b *Builder) build(ctx context.Context, buildPath string) error {
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
 		return err
 	}
@@ -143,68 +136,20 @@ func (b *Builder) dockerBuild(
 	buildPath string,
 	reference string,
 ) error {
-	isTerminal := false
-	var outputFD uintptr
-	if file, ok := b.outputStream.(*os.File); ok {
-		outputFD = file.Fd()
-		isTerminal = terminal.IsTerminal(int(outputFD))
-	}
-
 	relativeDockerfile := b.config.Dockerfile
 	if relativeDockerfile == "" {
 		relativeDockerfile = "Dockerfile"
 	}
-	excludes, err := build.ReadDockerignore(buildPath)
+	dockerfileSource, err := os.ReadFile(filepath.Join(buildPath, filepath.FromSlash(relativeDockerfile)))
 	if err != nil {
 		return err
 	}
-	if err := build.ValidateContextDirectory(buildPath, excludes); err != nil {
-		return errors.Wrap(err, "validate Docker build context")
-	}
-	excludes = build.TrimBuildFilesFromExcludes(excludes, relativeDockerfile, false)
-
-	buildContext, err := archive.TarWithOptions(buildPath, &archive.TarOptions{
-		ExcludePatterns: excludes,
-	})
-	if err != nil {
-		return err
-	}
-	defer buildContext.Close()
-
-	dockerfilePath := filepath.Join(buildPath, filepath.FromSlash(relativeDockerfile))
-	dockerfileSource, err := os.ReadFile(dockerfilePath)
-	if err != nil {
-		return err
-	}
-	buildContext, relativeDockerfile, err = build.AddDockerfileToBuildContext(
-		io.NopCloser(strings.NewReader(string(dockerfileSource))),
-		buildContext,
-	)
-	if err != nil {
-		return err
-	}
-
-	progressOutput := streamformatter.NewProgressOutput(b.outputStream)
-	body := progress.NewProgressReader(
-		buildContext,
-		progressOutput,
-		0,
-		"",
-		"Sending build context to Docker daemon",
-	)
-	response, err := dockerClient.ImageBuild(ctx, body, types.ImageBuildOptions{
-		PullParent:  false,
+	return dockerBuild(ctx, dockerClient, b.outputStream, buildPath, relativeDockerfile, string(dockerfileSource), client.ImageBuildOptions{
 		ForceRemove: !b.config.PreserveIntermediate,
-		Dockerfile:  relativeDockerfile,
 		Tags:        []string{reference},
 		Squash:      b.config.Squash,
 		BuildArgs:   b.config.BuildArgs,
 	})
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	return jsonmessage.DisplayJSONMessagesStream(response.Body, b.outputStream, outputFD, isTerminal, nil)
 }
 
 func (b *Builder) fetchSource(ctx context.Context, destination string) (string, error) {

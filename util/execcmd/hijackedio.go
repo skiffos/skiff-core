@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/client"
 	"github.com/moby/term"
 	"github.com/sirupsen/logrus"
 )
@@ -15,7 +15,7 @@ type HijackedIOStreamer struct {
 	InputStream  io.ReadCloser
 	OutputStream io.Writer
 	ErrorStream  io.Writer
-	Resp         types.HijackedResponse
+	Resp         client.HijackedResponse
 	TTY          bool
 
 	le *logrus.Entry
@@ -24,7 +24,7 @@ type HijackedIOStreamer struct {
 // NewHijackedIOStreamer constructs a streamer for a Docker hijacked connection.
 func NewHijackedIOStreamer(
 	le *logrus.Entry,
-	resp types.HijackedResponse,
+	resp client.HijackedResponse,
 	useTTY bool,
 ) *HijackedIOStreamer {
 	return &HijackedIOStreamer{le: le, Resp: resp, TTY: useTTY}

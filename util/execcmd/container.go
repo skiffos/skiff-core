@@ -4,8 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 	"github.com/sirupsen/logrus"
 )
 
@@ -29,8 +28,8 @@ func ExecCmdContainer(
 	useTTY := inStream != nil && inStream.IsTTY()
 
 	command := append([]string{cmd}, args...)
-	execCreate, err := dockerClient.ContainerExecCreate(ctx, containerID, container.ExecOptions{
-		Tty:  useTTY,
+	execCreate, err := dockerClient.ExecCreate(ctx, containerID, client.ExecCreateOptions{
+		TTY:  useTTY,
 		User: userID,
 		Cmd:  command,
 
@@ -42,15 +41,15 @@ func ExecCmdContainer(
 		return err
 	}
 
-	conn, err := dockerClient.ContainerExecAttach(ctx, execCreate.ID, container.ExecAttachOptions{
-		Tty: useTTY,
+	conn, err := dockerClient.ExecAttach(ctx, execCreate.ID, client.ExecAttachOptions{
+		TTY: useTTY,
 	})
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	streamer := NewHijackedIOStreamer(le, conn, useTTY)
+	streamer := NewHijackedIOStreamer(le, conn.HijackedResponse, useTTY)
 	if in != nil {
 		streamer.InputStream = in
 	}

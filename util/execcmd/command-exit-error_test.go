@@ -4,16 +4,16 @@ import (
 	"context"
 	"testing"
 
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 )
 
 type staticExecInspector struct {
-	result container.ExecInspect
+	result client.ExecInspectResult
 	err    error
 }
 
-func (s staticExecInspector) ContainerExecInspect(context.Context, string) (container.ExecInspect, error) {
+func (s staticExecInspector) ExecInspect(context.Context, string, client.ExecInspectOptions) (client.ExecInspectResult, error) {
 	return s.result, s.err
 }
 
@@ -30,7 +30,7 @@ func TestInspectExecExitPreservesStatus(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			err := InspectExecExit(context.Background(), staticExecInspector{
-				result: container.ExecInspect{ExitCode: testCase.exitCode},
+				result: client.ExecInspectResult{ExitCode: testCase.exitCode},
 			}, "exec-id")
 			if testCase.exitCode == 0 {
 				if err != nil {
@@ -52,7 +52,7 @@ func TestInspectExecExitPreservesStatus(t *testing.T) {
 
 func TestInspectExecExitRejectsRunningProcess(t *testing.T) {
 	err := InspectExecExit(context.Background(), staticExecInspector{
-		result: container.ExecInspect{Running: true},
+		result: client.ExecInspectResult{Running: true},
 	}, "exec-id")
 	if err == nil {
 		t.Fatal("expected a running-process error")

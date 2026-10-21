@@ -5,7 +5,7 @@ import (
 	"runtime"
 
 	"github.com/aperturerobotics/cli"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 	"github.com/paralin/scratchbuild/arch"
 	"github.com/paralin/scratchbuild/library"
 	"github.com/paralin/scratchbuild/stack"
@@ -76,7 +76,7 @@ func buildScratchBuildCommand(le *logrus.Entry) *cli.Command {
 						return errors.Wrap(err, "parse target tag")
 					}
 
-					dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+					dockerClient, err := client.New(client.FromEnv)
 					if err != nil {
 						return err
 					}

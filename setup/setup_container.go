@@ -3,12 +3,13 @@ package setup
 import (
 	"context"
 	"io"
+	"net/netip"
 	"strconv"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
@@ -64,11 +65,19 @@ func (c *ContainerSetup) buildDockerContainer() (*container.Config, *container.H
 	}
 
 	// Describe the host resources, mounting tini as init unless disabled.
+	var dns []netip.Addr
+	for _, server := range conf.DNS {
+		addr, err := netip.ParseAddr(server)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "parse DNS server")
+		}
+		dns = append(dns, addr)
+	}
 	useInit := !conf.DisableInit
 	hostConfig := &container.HostConfig{
 		Binds:       conf.Mounts,
 		CapAdd:      conf.CapAdd,
-		DNS:         conf.DNS,
+		DNS:         dns,
 		DNSSearch:   conf.DNSSearch,
 		ExtraHosts:  conf.Hosts,
 		Init:        &useInit,
@@ -88,20 +97,20 @@ func (c *ContainerSetup) buildDockerContainer() (*container.Config, *container.H
 		if portConfig.HostPort < 0 || portConfig.HostPort > 65535 {
 			return nil, nil, errors.Errorf("invalid host TCP port: %d", portConfig.HostPort)
 		}
-		port, err := nat.NewPort("tcp", strconv.Itoa(portConfig.ContainerPort))
+		port, err := network.ParsePort(strconv.Itoa(portConfig.ContainerPort) + "/tcp")
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "parse container port")
 		}
 		if containerConfig.ExposedPorts == nil {
-			containerConfig.ExposedPorts = make(nat.PortSet)
-			hostConfig.PortBindings = make(nat.PortMap)
+			containerConfig.ExposedPorts = make(network.PortSet)
+			hostConfig.PortBindings = make(network.PortMap)
 		}
 		containerConfig.ExposedPorts[port] = struct{}{}
 		hostPort := ""
 		if portConfig.HostPort > 0 {
 			hostPort = strconv.Itoa(portConfig.HostPort)
 		}
-		hostConfig.PortBindings[port] = []nat.PortBinding{{HostPort: hostPort}}
+		hostConfig.PortBindings[port] = []network.PortBinding{{HostPort: hostPort}}
 	}
 
 	// Share each requested host namespace.
@@ -132,7 +141,7 @@ func (c *ContainerSetup) Execute(ctx context.Context) (executeError error) {
 	if c.config.Image == "" {
 		return errors.Errorf("container must specify an image: %s", c.config.Name())
 	}
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
 		return err
 	}
@@ -163,7 +172,11 @@ func (c *ContainerSetup) Execute(ctx context.Context) (executeError error) {
 		if err != nil {
 			return err
 		}
-		result, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, c.config.Name())
+		result, err := dockerClient.ContainerCreate(ctx, client.ContainerCreateOptions{
+			Config:     containerConfig,
+			HostConfig: hostConfig,
+			Name:       c.config.Name(),
+		})
 		if err != nil {
 			return err
 		}
@@ -184,16 +197,17 @@ func (c *ContainerSetup) Execute(ctx context.Context) (executeError error) {
 	if _, err := c.logger.Write([]byte("Starting container " + c.containerID + "...\n")); err != nil {
 		return errors.Wrap(err, "write container setup log")
 	}
-	return errors.Wrap(dockerClient.ContainerStart(ctx, c.containerID, container.StartOptions{}), "start container")
+	_, err = dockerClient.ContainerStart(ctx, c.containerID, client.ContainerStartOptions{})
+	return errors.Wrap(err, "start container")
 }
 
 // findContainer records the ID of the container with the configured name and reports whether it exists.
 func (c *ContainerSetup) findContainer(ctx context.Context, dockerClient *client.Client) (bool, error) {
-	containers, err := dockerClient.ContainerList(ctx, container.ListOptions{All: true})
+	containers, err := dockerClient.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return false, err
 	}
-	for _, candidate := range containers {
+	for _, candidate := range containers.Items {
 		for _, name := range candidate.Names {
 			if name == c.config.Name() {
 				c.le.Debug("container already exists")

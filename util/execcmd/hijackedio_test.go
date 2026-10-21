@@ -5,22 +5,23 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/client"
 	"github.com/sirupsen/logrus"
 )
 
 func TestHijackedIOStreamerCopiesStderrWithoutStdout(t *testing.T) {
-	var encoded bytes.Buffer
-	if _, err := stdcopy.NewStdWriter(&encoded, stdcopy.Stderr).Write([]byte("failure")); err != nil {
-		t.Fatal(err)
-	}
+	// A multiplexed frame: the stream, three zero bytes, and the big-endian
+	// length of the payload that follows.
+	payload := "failure"
+	encoded := bytes.NewBuffer([]byte{byte(stdcopy.Stderr), 0, 0, 0, 0, 0, 0, byte(len(payload))})
+	encoded.WriteString(payload)
 
 	var stderr bytes.Buffer
 	streamer := &HijackedIOStreamer{
 		ErrorStream: &stderr,
-		Resp: types.HijackedResponse{
-			Reader: bufio.NewReader(&encoded),
+		Resp: client.HijackedResponse{
+			Reader: bufio.NewReader(encoded),
 		},
 		le: logrus.NewEntry(logrus.New()),
 	}
@@ -36,7 +37,7 @@ func TestTTYHijackedIOStreamerCopiesCombinedOutputToStderrFallback(t *testing.T)
 	var stderr bytes.Buffer
 	streamer := &HijackedIOStreamer{
 		ErrorStream: &stderr,
-		Resp: types.HijackedResponse{
+		Resp: client.HijackedResponse{
 			Reader: bufio.NewReader(bytes.NewBufferString("combined")),
 		},
 		TTY: true,

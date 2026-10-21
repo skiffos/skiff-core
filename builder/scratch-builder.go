@@ -4,20 +4,12 @@ import (
 	"context"
 	"io"
 	"os"
-	"strings"
 
-	dockerBuild "github.com/docker/cli/cli/command/image/build"
-	buildTypes "github.com/docker/docker/api/types/build"
-	imageTypes "github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/docker/docker/pkg/progress"
-	"github.com/docker/docker/pkg/streamformatter"
+	"github.com/moby/moby/client"
+	"github.com/moby/moby/client/pkg/jsonmessage"
 	"github.com/paralin/scratchbuild/stack"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/ssh/terminal"
 )
 
 // ScratchBuilder builds a rebased scratchbuild image stack.
@@ -58,74 +50,15 @@ func (b *ScratchBuilder) SetOutputStream(output io.Writer) {
 	b.outputStream = output
 }
 
-func (b *ScratchBuilder) terminalOutput() (uintptr, bool) {
-	file, ok := b.outputStream.(*os.File)
-	if !ok {
-		return 0, false
-	}
-	fd := file.Fd()
-	return fd, terminal.IsTerminal(int(fd))
-}
-
 func (b *ScratchBuilder) pullImage(ctx context.Context, reference string) error {
-	outputFD, isTerminal := b.terminalOutput()
 	b.le.WithField("ref", reference).Debug("pull scratchbuild base image")
-	response, err := b.dockerClient.ImagePull(ctx, reference, imageTypes.PullOptions{})
+	response, err := b.dockerClient.ImagePull(ctx, reference, client.ImagePullOptions{})
 	if err != nil {
 		return errors.Wrap(err, "pull scratchbuild base image")
 	}
 	defer response.Close()
+	outputFD, isTerminal := terminalOutput(b.outputStream)
 	return jsonmessage.DisplayJSONMessagesStream(response, b.outputStream, outputFD, isTerminal, nil)
-}
-
-func (b *ScratchBuilder) dockerBuild(
-	ctx context.Context,
-	directory string,
-	dockerfileSource string,
-	reference string,
-) error {
-	outputFD, isTerminal := b.terminalOutput()
-	const relativeDockerfile = "Dockerfile"
-	excludes, err := dockerBuild.ReadDockerignore(directory)
-	if err != nil {
-		return err
-	}
-	if err := dockerBuild.ValidateContextDirectory(directory, excludes); err != nil {
-		return errors.Wrap(err, "validate scratchbuild context")
-	}
-	excludes = dockerBuild.TrimBuildFilesFromExcludes(excludes, relativeDockerfile, false)
-	buildContext, err := archive.TarWithOptions(directory, &archive.TarOptions{ExcludePatterns: excludes})
-	if err != nil {
-		return err
-	}
-	defer buildContext.Close()
-
-	buildContext, dockerfile, err := dockerBuild.AddDockerfileToBuildContext(
-		io.NopCloser(strings.NewReader(dockerfileSource)),
-		buildContext,
-	)
-	if err != nil {
-		return err
-	}
-	progressOutput := streamformatter.NewProgressOutput(b.outputStream)
-	body := progress.NewProgressReader(
-		buildContext,
-		progressOutput,
-		0,
-		"",
-		"Sending build context to Docker daemon",
-	)
-	response, err := b.dockerClient.ImageBuild(ctx, body, buildTypes.ImageBuildOptions{
-		PullParent:  false,
-		ForceRemove: b.forceRemove,
-		Dockerfile:  dockerfile,
-		Tags:        []string{reference},
-	})
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	return jsonmessage.DisplayJSONMessagesStream(response.Body, b.outputStream, outputFD, isTerminal, nil)
 }
 
 // Build validates and builds each layer in the image stack.
@@ -153,7 +86,8 @@ func (b *ScratchBuilder) Build(ctx context.Context) error {
 		if _, err := io.WriteString(b.outputStream, dockerfile+"\n"); err != nil {
 			return err
 		}
-		if err := b.dockerBuild(ctx, layer.Path, dockerfile, reference); err != nil {
+		options := client.ImageBuildOptions{ForceRemove: b.forceRemove, Tags: []string{reference}}
+		if err := dockerBuild(ctx, b.dockerClient, b.outputStream, layer.Path, "Dockerfile", dockerfile, options); err != nil {
 			return err
 		}
 	}

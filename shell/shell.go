@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/aperturerobotics/fsnotify"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
 	"github.com/kballard/go-shellquote"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/skiffos/skiff-core/config"
@@ -29,7 +28,7 @@ func NewShell(le *logrus.Entry, homeDir string) *Shell {
 }
 
 func (s *Shell) buildDockerClient() (client.APIClient, error) {
-	return client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	return client.New(client.FromEnv)
 }
 
 func (s *Shell) loadUserConfig(configPath string) (*config.ConfigUserShell, error) {
@@ -245,16 +244,16 @@ func (s *Shell) Execute(ctx context.Context, inputCmd string, execWithShell bool
 		return err
 	}
 
-	inspection, err := dockerClient.ContainerInspect(ctx, userConfig.ContainerID)
+	inspection, err := dockerClient.ContainerInspect(ctx, userConfig.ContainerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return err
 	}
-	if inspection.State == nil || !inspection.State.Running {
+	if state := inspection.Container.State; state == nil || !state.Running {
 		if _, err := errOut.Write([]byte("Starting container " + userConfig.ContainerID + "...\n")); err != nil {
 			return err
 		}
-		if err := dockerClient.ContainerStart(ctx, userConfig.ContainerID, container.StartOptions{}); err != nil {
-			logs, logErr := dockerClient.ContainerLogs(ctx, userConfig.ContainerID, container.LogsOptions{
+		if _, err := dockerClient.ContainerStart(ctx, userConfig.ContainerID, client.ContainerStartOptions{}); err != nil {
+			logs, logErr := dockerClient.ContainerLogs(ctx, userConfig.ContainerID, client.ContainerLogsOptions{
 				ShowStderr: true,
 				ShowStdout: true,
 			})
@@ -270,8 +269,8 @@ func (s *Shell) Execute(ctx context.Context, inputCmd string, execWithShell bool
 		}
 	}
 
-	execCreate, err := dockerClient.ContainerExecCreate(ctx, userConfig.ContainerID, container.ExecOptions{
-		Tty:  useTTY,
+	execCreate, err := dockerClient.ExecCreate(ctx, userConfig.ContainerID, client.ExecCreateOptions{
+		TTY:  useTTY,
 		User: userConfig.User,
 		Cmd:  cmd,
 		Env:  buildShellEnv(),
@@ -284,15 +283,15 @@ func (s *Shell) Execute(ctx context.Context, inputCmd string, execWithShell bool
 		return err
 	}
 
-	conn, err := dockerClient.ContainerExecAttach(ctx, execCreate.ID, container.ExecAttachOptions{
-		Tty: useTTY,
+	conn, err := dockerClient.ExecAttach(ctx, execCreate.ID, client.ExecAttachOptions{
+		TTY: useTTY,
 	})
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	streamer := execcmd.NewHijackedIOStreamer(s.le, conn, useTTY)
+	streamer := execcmd.NewHijackedIOStreamer(s.le, conn.HijackedResponse, useTTY)
 	streamer.InputStream = in
 	streamer.OutputStream = out
 	streamer.ErrorStream = errOut
