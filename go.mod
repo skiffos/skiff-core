@@ -13,7 +13,7 @@ require (
 	github.com/moby/moby/client v0.6.2
 	github.com/moby/sys/signal v0.7.1
 	github.com/moby/term v0.5.2
-	github.com/paralin/scratchbuild v1.3.2-0.20261021212825-6df030d0befa
+	github.com/paralin/scratchbuild v1.3.2
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.10.2
 	golang.org/x/crypto v0.58.0
