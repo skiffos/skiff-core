@@ -142,7 +142,17 @@ func (s *Shell) waitForUserConfig(
 
 var defaultShell = []string{"/bin/sh"}
 
-const sftpServerShim = `for p in /usr/lib/openssh/sftp-server /usr/libexec/sftp-server /usr/lib/ssh/sftp-server; do
+// sftpServerShim runs the container's sftp-server. Distributions install it
+// outside PATH at their own location: Debian and Ubuntu, then Alpine and Arch,
+// Fedora, Gentoo, and the NixOS system profile.
+const sftpServerShim = `for p in \
+	/usr/lib/openssh/sftp-server \
+	/usr/libexec/sftp-server \
+	/usr/lib/ssh/sftp-server \
+	/usr/libexec/openssh/sftp-server \
+	/usr/lib64/misc/sftp-server \
+	/usr/lib/misc/sftp-server \
+	/run/current-system/sw/libexec/sftp-server; do
 	if [ -x "$p" ]; then
 		exec "$p" "$@"
 	fi
